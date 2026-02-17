@@ -146,12 +146,17 @@ de.its.odin.core/
 
 ```
 de.its.odin.app/
-├── config/         # Mode-Wiring (LiveWiringConfig, SimWiringConfig), EnableConfigurationProperties
-├── controller/     # REST Controller, SSE Endpoints
-└── OdinApplication.java
+├── config/
+│   ├── LiveWiringConfig.java       # @ConditionalOnProperty(odin.agent.mode=LIVE)
+│   ├── SimWiringConfig.java        # @ConditionalOnProperty(odin.agent.mode=SIMULATION)
+│   └── SharedConfig.java           # Mode-unabhaengig (EventLog)
+├── controller/
+│   ├── HealthController.java       # GET /api/health, GET /api/instruments
+│   └── SimulationController.java   # POST /api/runs/simulation (nur SIMULATION)
+└── OdinApplication.java            # @SpringBootApplication, @Import, @EnableConfigurationProperties
 ```
 
-odin-app ist die Composition Root. Hier werden Port-Implementierungen an Ports gebunden (Mode-abhängig) und alle @EnableConfigurationProperties aktiviert.
+odin-app ist die Composition Root. `OdinApplication` importiert `CoreConfiguration` und `DataSourceConfiguration` per `@Import`, aktiviert alle Fachmodul-Properties per `@EnableConfigurationProperties`, und scannt nur `de.its.odin.app` (Default-Scan). Mode-spezifische Port-Bindungen erfolgen in `LiveWiringConfig` / `SimWiringConfig` via `@ConditionalOnProperty`. Mode-unabhaengige Beans (z.B. `EventLog`) werden in `SharedConfig` definiert.
 
 ---
 
@@ -349,18 +354,19 @@ public record BrokerProperties(
 Die zentrale Aktivierung aller Properties erfolgt in odin-app:
 
 ```java
+// In OdinApplication.java:
 @EnableConfigurationProperties({
-        BrokerProperties.class,
-        DataPipelineProperties.class,
-        BrainProperties.class,
-        ExecutionProperties.class,
-        CoreProperties.class,
         AuditProperties.class,
-        PersistenceProperties.class
+        BrainProperties.class,
+        BrokerProperties.class,
+        DataProperties.class,
+        ExecutionProperties.class
 })
+// CoreProperties wird von CoreConfiguration aktiviert (@Import in OdinApplication)
+// PersistenceProperties wird von DataSourceConfiguration aktiviert (@Import in OdinApplication)
 ```
 
-Kein Fachmodul aktiviert seine eigenen Properties. Das ist Aufgabe der Composition Root (odin-app).
+Kein Fachmodul aktiviert seine eigenen Properties. Die fuenf Fachmodul-Properties werden direkt in `OdinApplication` aktiviert. `CoreProperties` und `PersistenceProperties` werden von den per `@Import` geladenen `@Configuration`-Klassen (`CoreConfiguration`, `DataSourceConfiguration`) aktiviert.
 
 ---
 
@@ -508,48 +514,47 @@ ODIN unterscheidet zwischen Singleton-Komponenten (ein Mal pro JVM) und Pro-Pipe
 
 ### 7.2 Component-Scan
 
-Component-Scan ist beschraenkt auf:
-- `de.its.odin.app`
-- `de.its.odin.core`
-- `de.its.odin.broker`
-- `de.its.odin.audit`
+Component-Scan ist **ausschliesslich** auf `de.its.odin.app` beschraenkt (Default-Scan von `@SpringBootApplication`). Keine weiteren Packages werden gescannt.
 
-Zusaetzlich werden Repositories via `@EnableJpaRepositories` und Entities via `@EntityScan` aktiviert (nicht ueber Component-Scan):
-- `de.its.odin.execution.persistence.repository` / `.entity`
-- `de.its.odin.brain.persistence.repository` / `.entity`
-- `de.its.odin.core.persistence.repository` / `.entity`
-- `de.its.odin.audit.repository` / `.entity`
+**Explizite Imports statt Component-Scan:**
+- `CoreConfiguration` (odin-core) → per `@Import` in `OdinApplication`
+- `DataSourceConfiguration` (odin-persistence) → per `@Import` in `OdinApplication`
 
-`odin-persistence` wird **nicht** vom Component-Scan erfasst — es stellt nur `@Configuration`-Klassen bereit (DataSourceConfiguration), die ueber `@Import` oder Boot-Auto-Config geladen werden.
+**JPA-Aktivierung (v1):**
+```java
+@EntityScan(basePackages = "de.its.odin")
+@EnableJpaRepositories(basePackages = "de.its.odin")
+```
+Repositories und Entities werden ueber `@EnableJpaRepositories` / `@EntityScan` mit breitem Base-Package aktiviert (v1). In v2 ggf. auf spezifische Modul-Packages einschraenken.
 
 Pro-Pipeline-Module (data, brain, execution) werden NICHT vom Component-Scan erfasst. Die `PipelineFactory` in odin-core erzeugt deren Service-Instanzen als plain Java Objects und verdrahtet sie gegen Port-Interfaces. **Repositories** in diesen Modulen sind davon ausgenommen — sie sind Singletons und werden per `@EnableJpaRepositories` aktiviert.
 
-**Wichtig:** Pro-Pipeline-Module koennen dennoch Klassen enthalten, die als Singletons genutzt werden (z.B. `ClaudeAnalystClient` in odin-brain). Diese werden **nicht** per Component-Scan gefunden, sondern ausschliesslich in odin-app per `@Bean`-Methode instanziiert. In den Pro-Pipeline-Modulen sind `@Component` und `@Service` Annotations verboten. Spring Data JPA `@Repository`-Interfaces im `persistence/` Sub-Package sind die einzige Ausnahme (Singletons).
+**Wichtig:** Pro-Pipeline-Module koennen Klassen enthalten, die als Singletons genutzt werden (z.B. `LlmAnalystOrchestrator` in odin-brain, `IbSession` in odin-broker). Diese werden **nicht** per Component-Scan gefunden, sondern ausschliesslich in odin-app per `@Bean`-Methode instanziiert (in `LiveWiringConfig` / `SimWiringConfig` / `SharedConfig`). In den Pro-Pipeline-Modulen sind `@Component` und `@Service` Annotations verboten. Spring Data JPA `@Repository`-Interfaces sind die einzige Ausnahme (Singletons).
 
 ### 7.2a Wiring-Regel: Wer erzeugt was?
 
 | Komponente | Erzeugt durch | Uebergabe an Pipeline |
 |-----------|--------------|----------------------|
-| Singleton-Adapter (IbSession, ClaudeAnalystClient, PostgresEventLog) | odin-app (Mode-Wiring: LiveWiringConfig/SimWiringConfig) | Als Port-Interface an PipelineFactory |
+| Singleton-Adapter (IbSession, LlmAnalystOrchestrator, PostgresEventLog) | odin-app (Mode-Wiring: LiveWiringConfig/SimWiringConfig/SharedConfig) | Als Port-Interface an PipelineFactory (via CoreConfiguration) |
 | Singleton-Services (GlobalRiskManager, LifecycleManager) | odin-core (@Configuration) | Direkt verwendet, nicht pro Pipeline |
 | Singleton-Repositories (TradeRepository, LlmCallRepository, ...) | Spring Data JPA (@EnableJpaRepositories) | Per Konstruktor an PipelineFactory, weiter an Pipeline-Services |
 | Pro-Pipeline-Objekte (DataPipelineService, KpiEngine, RiskGate, ...) | PipelineFactory in odin-core | Per Konstruktor mit Ports, Properties und Repositories |
 
-**Klarstellung:** Singleton-Adapter wie `ClaudeAnalystClient` oder `IbBrokerGateway` werden in odin-app als Spring Beans erzeugt und als Port-Interfaces (z.B. `LlmAnalyst`, `BrokerGateway`) an die `PipelineFactory` weitergegeben. Repositories sind ebenfalls Singletons und werden per Constructor Injection an die PipelineFactory uebergeben. Die Factory erzeugt dann pro Pipeline die internen Komponenten und verbindet sie mit den Singleton-Ports und -Repositories. Pro-Pipeline-Klassen sind POJOs und erhalten ihre Abhaengigkeiten ausschliesslich per Konstruktor.
+**Klarstellung:** Singleton-Adapter wie `LlmAnalystOrchestrator` oder `PostgresEventLog` werden in odin-app als Spring Beans erzeugt und als Port-Interfaces (z.B. `LlmAnalyst`, `EventLog`) an die `PipelineFactory` weitergegeben. `BrokerGateway` ist kein Singleton — stattdessen wird ein `BrokerGatewayProvider` bereitgestellt, der pro Pipeline eine neue Instanz erzeugt (`IbBrokerGateway` in LIVE, `BrokerSimulator` in SIMULATION). Repositories sind ebenfalls Singletons und werden per Constructor Injection an die PipelineFactory uebergeben. Die Factory erzeugt dann pro Pipeline die internen Komponenten und verbindet sie mit den Singleton-Ports, dem BrokerGatewayProvider und den Repositories. Pro-Pipeline-Klassen sind POJOs und erhalten ihre Abhaengigkeiten ausschliesslich per Konstruktor.
 
 ### 7.3 @Configuration-Klassen
 
 | Modul | @Configuration Bean-Definitionen? | @ConfigurationProperties Records? | Begruendung |
 |-------|-----------------------------------|----------------------------------|-------------|
 | odin-api | Nein | Nein | Kein Spring-Kontext |
-| odin-broker | Ja | Ja | Singleton (IbSession, IbDispatcher) |
+| odin-broker | **Nein** | Ja | IbSession wird in odin-app per @Bean erzeugt (LiveWiringConfig) |
 | odin-data | **Nein** | Ja | Pro-Pipeline — keine Bean-Definitionen |
 | odin-brain | **Nein** | Ja | Pro-Pipeline — keine Bean-Definitionen |
 | odin-execution | **Nein** | Ja | Pro-Pipeline — keine Bean-Definitionen |
 | odin-core | Ja | Ja | Singleton (Lifecycle, GlobalRisk, PipelineFactory) |
-| odin-audit | Ja | Ja | Singleton (PostgresEventLog, AuditEventDrainer) |
+| odin-audit | **Nein** | Ja | PostgresEventLog wird in odin-app per @Bean erzeugt (SharedConfig) |
 | odin-persistence | Ja | Ja | Singleton (DataSource, JPA-Infra, Flyway) |
-| odin-app | Ja | Nein (aktiviert fremde) | Composition Root, Mode-Wiring, @EnableJpaRepositories, @EntityScan |
+| odin-app | Ja | Nein (aktiviert fremde) | Composition Root, Mode-Wiring, @Import, @EnableJpaRepositories, @EntityScan |
 
 **Wichtig:** Pro-Pipeline-Module (data, brain, execution) definieren `@ConfigurationProperties` Records in ihrem `config/` Package, aber **keine** `@Configuration`-Klassen mit Bean-Definitionen. Die Properties-Aktivierung erfolgt ausschliesslich in odin-app via `@EnableConfigurationProperties`. Die PipelineFactory erhaelt die gebundenen Properties per Konstruktor-Injection und gibt sie an die manuell erzeugten Pipeline-Objekte weiter.
 

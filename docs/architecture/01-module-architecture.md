@@ -133,10 +133,11 @@ de.its.odin.{modul}/
 
 ```
 de.its.odin.api/
-├── port/           # Die fuenf zentralen Ports (Interfaces)
+├── port/           # Die fuenf zentralen Ports + BrokerGatewayProvider
 │   ├── MarketClock
 │   ├── MarketDataFeed
 │   ├── BrokerGateway
+│   ├── BrokerGatewayProvider  # Factory fuer per-Pipeline BrokerGateway-Instanzen
 │   ├── LlmAnalyst
 │   └── EventLog
 ├── event/          # Event-Typen (Records): MarketEvent, BrokerEvent, LlmAnalysis, RunEvent
@@ -158,10 +159,12 @@ Die in Kapitel 0 (Abschnitt 3.2) definierten Ports leben als Interfaces in `de.i
 | `MarketClock` | `SystemMarketClock` | odin-core | `SimClock` | odin-core |
 | `MarketDataFeed` | `IbMarketDataFeed` | odin-broker | `HistoricalMarketDataFeed` | odin-data |
 | `BrokerGateway` | `IbBrokerGateway` | odin-broker | `BrokerSimulator` | odin-broker |
-| `LlmAnalyst` | `ClaudeAnalystClient`, `OpenAiAnalystClient` | odin-brain | `CachedAnalyst` | odin-brain |
+| `LlmAnalyst` | `LlmAnalystOrchestrator` (mit `ClaudeProviderClient` / `OpenAiProviderClient`) | odin-brain | `CachedAnalyst` | odin-brain |
 | `EventLog` | `PostgresEventLog` | odin-audit | `PostgresEventLog` (selbe Impl.) | odin-audit |
 
 > **EventLog** wird in beiden Modi identisch implementiert (PostgreSQL) und lebt in **odin-audit**. In der Simulation werden dieselben Events geloggt wie im Live-Betrieb — das ist Voraussetzung fuer Record/Replay. Der `AuditEventDrainer` in odin-audit schreibt ausschliesslich `EventRecord` (flaches Archiv). Strukturierte Daten (Trades, Fills, LLM-Calls etc.) werden von den Domaenen-Modulen direkt ueber eigene Repositories persistiert.
+
+> **BrokerGatewayProvider:** Da `BrokerGateway`-Implementierungen per-Pipeline State halten (eigene Orders, Positions), kann `BrokerGateway` kein Singleton sein. Das Functional Interface `BrokerGatewayProvider` in odin-api abstrahiert die Erzeugung: `create(pipelineId, instrumentId, runId, marketClock) → BrokerGateway`. Die `PipelineFactory` erhaelt den Provider und erstellt pro `createPipeline()` eine neue Gateway-Instanz. In LIVE erzeugt der Provider `IbBrokerGateway`-Instanzen (Facade ueber den Singleton `IbSession`), in SIMULATION `BrokerSimulator`-Instanzen.
 
 ### RunContext
 
@@ -345,39 +348,38 @@ Die in Kapitel 0 (Abschnitt 3.2) definierten Ports leben als Interfaces in `de.i
 
 **Verantwortung:** Spring Boot Hauptanwendung. Composition Root. Mode-Wiring. Konfiguration.
 
-**Inhalte:**
-- `OdinApplication` — `@SpringBootApplication` Main-Klasse
-- **Mode-Wiring:**
-  - `LiveWiringConfig` — `@Configuration`, aktiv bei `odin.agent.mode=LIVE`. Bindet: `SystemMarketClock`, `IbMarketDataFeed`, `IbBrokerGateway`, `ClaudeAnalystClient`/`OpenAiAnalystClient`
-  - `SimWiringConfig` — `@Configuration`, aktiv bei `odin.agent.mode=SIMULATION`. Bindet: `SimClock`, `HistoricalMarketDataFeed`, `BrokerSimulator`, `CachedAnalyst`, `SimulationRunner`
-- **SSE Controller + REST Controls** — Backend-Endpoints fuer Frontend-Kommunikation (Kap 9)
-- **REST Controller** — Kill-Switch-Endpoint (`/api/kill`), Health, Admin-Endpoints
-- Properties-Import-Kaskade (odin-app → odin-core → alle Fachmodule)
-- `@EnableConfigurationProperties` fuer alle Properties-Klassen
-- `@EnableJpaRepositories` und `@EntityScan` fuer alle persistierenden Domaenen-Module
-- Actuator-Konfiguration (Health, Metrics)
+**Inhalte (`de.its.odin.app`):**
+- `OdinApplication` — `@SpringBootApplication` Main-Klasse. `@Import({CoreConfiguration.class, DataSourceConfiguration.class})`. `@EnableConfigurationProperties` fuer alle Fachmodul-Properties. `@EntityScan` und `@EnableJpaRepositories` mit Base-Package `de.its.odin`.
+- **Mode-Wiring (v1):**
+  - `LiveWiringConfig` — `@Configuration`, aktiv bei `odin.agent.mode=LIVE`. Erzeugt: `IbSession`, `SystemMarketClock`, `IbMarketDataFeed` (Singleton), `BrokerGatewayProvider` (→ `IbBrokerGateway` pro Pipeline), `LlmAnalystOrchestrator` (mit `ClaudeProviderClient` oder `OpenAiProviderClient`)
+  - `SimWiringConfig` — `@Configuration`, aktiv bei `odin.agent.mode=SIMULATION`. Erzeugt: `SimClock`, `HistoricalMarketDataFeed`, `BrokerGatewayProvider` (→ `BrokerSimulator` pro Pipeline), `CachedAnalyst`, `SimulationRunner`
+  - `SharedConfig` — Mode-unabhaengig. Erzeugt: `PostgresEventLog` als `EventLog`-Bean
+- **REST Controller (v1):**
+  - `HealthController` — `GET /api/health` (Status + Modus), `GET /api/instruments` (konfigurierte Instrumente)
+  - `SimulationController` — `POST /api/runs/simulation` (Simulations-Trigger, nur bei `odin.agent.mode=SIMULATION`)
+- Properties-Import-Kaskade: `application.properties` → `odin-core.properties` → alle Fachmodul-Properties
+- `@EnableConfigurationProperties` fuer: `AuditProperties`, `BrainProperties`, `BrokerProperties`, `DataProperties`, `ExecutionProperties`. (`CoreProperties` und `PersistenceProperties` werden von den importierten `@Configuration`-Klassen aktiviert)
 
-**JPA-Konfiguration:**
+**v2-Features (noch nicht implementiert):**
+- SSE Controller fuer Echtzeit-Monitoring-Streams (Kap 9)
+- Kill-Switch REST Endpoint (`POST /api/controls/kill-switch`)
+- `AuditEventDrainer`-Bean fuer LIVE-Modus
+- Actuator-Konfiguration (Health, Metrics)
+- CORS-Konfiguration fuer React-Frontend
+- `LiveTradingRunner` (ApplicationRunner fuer automatischen LIVE-Start)
+
+**JPA-Konfiguration (v1):**
 ```java
-@EnableJpaRepositories(basePackages = {
-    "de.its.odin.execution.persistence.repository",
-    "de.its.odin.brain.persistence.repository",
-    "de.its.odin.core.persistence.repository",
-    "de.its.odin.audit.repository"
-})
-@EntityScan(basePackages = {
-    "de.its.odin.execution.persistence.entity",
-    "de.its.odin.brain.persistence.entity",
-    "de.its.odin.core.persistence.entity",
-    "de.its.odin.audit.entity"
-})
+@EntityScan(basePackages = "de.its.odin")
+@EnableJpaRepositories(basePackages = "de.its.odin")
 ```
+> In v1 mit breitem Base-Package. In v2 ggf. auf spezifische Modul-Packages einschraenken.
 
 **Scope:** Singleton (eine JVM, eine Spring-Boot-Instanz)
 
-**Abhaengigkeiten:** odin-core (transitiv alle anderen Module)
+**Abhaengigkeiten:** odin-core (transitiv alle Fachmodule), odin-persistence (direkt)
 
-> **Spring-Annotation-Policy:** `@Repository` wird in den persistierenden Domaenen-Modulen (brain, execution, core, audit) fuer Spring Data JPA Repositories verwendet — diese sind Singletons. `@Component` und `@Service` werden nur in Singleton-Modulen (odin-broker, odin-audit, odin-app) verwendet. Pro-Pipeline-**Services** (odin-data, odin-brain, odin-execution) werden **manuell** von der PipelineFactory instanziiert — sie sind keine Spring-Beans. Component-Scan ist auf `de.its.odin.core`, `de.its.odin.broker`, `de.its.odin.audit` und `de.its.odin.app` beschraenkt. Repositories werden ueber `@EnableJpaRepositories` separat aktiviert.
+> **Spring-Annotation-Policy:** `@Repository` wird in den persistierenden Domaenen-Modulen fuer Spring Data JPA Repositories verwendet — diese sind Singletons (aktiviert via `@EnableJpaRepositories`). `@Component` und `@Service` sind auf odin-app beschraenkt. Pro-Pipeline-**Services** (odin-data, odin-brain, odin-execution) werden **manuell** von der PipelineFactory instanziiert — sie sind keine Spring-Beans. Component-Scan ist ausschliesslich auf `de.its.odin.app` beschraenkt. `CoreConfiguration` (odin-core) und `DataSourceConfiguration` (odin-persistence) werden per `@Import` in `OdinApplication` geladen — nicht per Component-Scan. Repositories werden ueber `@EnableJpaRepositories` separat aktiviert.
 
 ### odin-frontend
 
@@ -420,26 +422,27 @@ Die in Kapitel 0 (Abschnitt 3.2) definierten Ports leben als Interfaces in `de.i
 | LLM-Kontext/Cache-Keying (nicht der HTTP-Client) | odin-brain | Pipeline-spezifischer Kontext |
 | `PipelineStateMachine` | odin-core | Eigene FSM pro Pipeline |
 
-> **Pro-Pipeline-Instanzen werden manuell von der PipelineFactory erzeugt** (plain Java objects, kein Spring Prototype Scope). Component-Scan ist auf `de.its.odin.core`, `de.its.odin.broker`, `de.its.odin.audit` und `de.its.odin.app` beschraenkt. Repositories sind Singletons (via `@EnableJpaRepositories`) und werden von der PipelineFactory per Constructor Injection an die Pro-Pipeline-POJOs weitergereicht.
+> **Pro-Pipeline-Instanzen werden manuell von der PipelineFactory erzeugt** (plain Java objects, kein Spring Prototype Scope). Component-Scan ist ausschliesslich auf `de.its.odin.app` beschraenkt — `CoreConfiguration` und `DataSourceConfiguration` werden per `@Import` geladen. `BrokerGateway`-Instanzen werden per `BrokerGatewayProvider` pro Pipeline erzeugt. Repositories sind Singletons (via `@EnableJpaRepositories`) und werden von der PipelineFactory per Constructor Injection an die Pro-Pipeline-POJOs weitergereicht.
 
 ### Pipeline-Erzeugung
 
-Die `PipelineFactory` in odin-core erzeugt fuer jedes konfigurierte Instrument eine vollstaendige Pipeline. Die Verdrahtung erfolgt **ausschliesslich gegen Port-Interfaces aus odin-api**:
+Die `PipelineFactory` in odin-core erzeugt fuer jedes konfigurierte Instrument eine vollstaendige Pipeline. Die Verdrahtung erfolgt **ausschliesslich gegen Port-Interfaces aus odin-api**. `BrokerGateway`-Instanzen werden per `BrokerGatewayProvider` pro Pipeline erzeugt:
 
 ```
-PipelineFactory.createPipeline(instrument, runContext, ports, repositories)
-  → new DataPipelineService(buffer, dqGate, snapshotFactory, clock)   // clock: MarketClock
-  → new KpiEngine(ta4jConfig)
-  → new RulesEngine(rulesConfig)
-  → new QuantValidation(quantConfig)
-  → new DecisionArbiter(rules, quant, llmAnalyst, decisionLogRepo)   // llmAnalyst: LlmAnalyst Port
-  → new RiskGate(riskConfig, pipelineBudget)
-  → new OrderManagementService(brokerGateway, eventLog,               // brokerGateway: BrokerGateway Port
-                               tradeRepo, fillRepo)                   // Repositories fuer direkte Persistierung
-  → new TradingPipeline(data, brain, execution, fsm, runContext)
+PipelineFactory.createPipeline(instrumentId, runContext)
+  → BrokerGateway brokerGateway = brokerGatewayProvider.create(pipelineId, instrumentId, runId, clock)
+  → new DataPipelineService(pipelineId, instrumentId, runId, mode, clock, eventLog, dataProperties)
+  → new KpiEngine(brainProperties)
+  → new RulesEngine(brainProperties)
+  → new QuantValidation(quantConfig) + new DecisionArbiter(quantValidation, brainProperties)
+  → new RiskGate(executionProperties, eventLog, instrumentId, runId)
+  → new OrderManagementService(brokerGateway, eventLog, clock, executionProperties, instrumentId, runId)
+  → new TradingPipeline(fsm, data, kpi, rules, arbiter, llmAnalyst, riskGate, oms, ...)
+  → dataPipeline.registerListener(pipeline)
+  → brokerGateway.registerListener(composite: oms → pipeline)
 ```
 
-> **Contract-Only Wiring + Repository Injection:** Die PipelineFactory erhaelt die Port-Implementierungen (MarketClock, MarketDataFeed, BrokerGateway, LlmAnalyst, EventLog) und die Singleton-Repositories per Constructor Injection von odin-app. Sie instanziiert die Pipeline-internen Komponenten manuell und reicht die Repositories an die Services weiter. Die Services persistieren ihre strukturierten Daten direkt (OMS → Trade/Fill, DecisionArbiter → DecisionLog). Der EventLog-Port wird weiterhin fuer das flache Event-Archiv (EventRecord) genutzt.
+> **Contract-Only Wiring + BrokerGatewayProvider:** Die PipelineFactory erhaelt den `BrokerGatewayProvider` (statt eines Singleton `BrokerGateway`) und die Port-Implementierungen (`MarketClock`, `MarketDataFeed`, `LlmAnalyst`, `EventLog`) per Constructor Injection von `CoreConfiguration`. Pro `createPipeline()`-Aufruf wird ein neuer `BrokerGateway` ueber den Provider erzeugt — so hat jede Pipeline ihren eigenen Order-State. Die Pipeline-internen Komponenten werden manuell instanziiert und gegen die Ports verdrahtet.
 
 > **Transaktionsgrenzen:** Pro-Pipeline-Services sind POJOs ohne Spring-AOP-Proxy — `@Transactional` ist daher nicht verfuegbar. Jeder einzelne Spring-Data-JPA-Repository-Aufruf laeuft in einer eigenen Transaktion (Default-Verhalten). Fuer atomare Multi-Statement-Operationen (z.B. Trade + Fill in einem Commit) erhaelt der betreffende Service ein `TransactionTemplate` via PipelineFactory und wickelt die Aufrufe programmatisch ab.
 
