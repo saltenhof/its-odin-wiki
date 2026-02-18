@@ -69,6 +69,8 @@ nav:
       - "Modulstruktur": guardrails/module-structure.md
       - "Entwicklungsprozess": guardrails/development-process.md
       - "Frontend": guardrails/frontend.md
+  - Requirements:
+      - "Web Application Transformation": requirements/web-application-requirements.md
   - Meta:
       - "Playbook": meta/playbook.md
       - "Working State": meta/working-state.md
