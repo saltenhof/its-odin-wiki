@@ -1,8 +1,8 @@
 # ODIN — Guardrail: Entwicklungsprozess (Agent Development Guide)
 
-Version: 1.2
-Stand: 2026-02-15
-Review: ChatGPT R1. DDD-Modulschnitt: Referenzen aktualisiert (odin-persistence → Domaenen-Module, odin-audit)
+Version: 1.3
+Stand: 2026-02-18
+Review: R2. Sub-Agent-Entwicklungspipeline, Spec-Driven Implementation, Protokolldateien
 
 ---
 
@@ -198,6 +198,35 @@ Kein Metrics-Framework (Micrometer) proaktiv einbauen — das kommt spaeter. Str
 - Keine Kompatibilitaetsschichten oder Deprecated Code (R3.5)
 - Keine eigenen Annahmen ins Design einfliessen lassen (R3.6)
 
+### 5.5 Spec-Driven Implementation (PFLICHT)
+
+Jede Implementierung muss direkt gegen die Architektur-Spezifikation erfolgen — nicht gegen Zusammenfassungen, Erinnerungen oder Beschreibungen aus dem Gespraech. Dies gilt insbesondere fuer Sub-Agents.
+
+**Grundregeln:**
+
+1. **Spec als Input:** Jeder Sub-Agent, der Code schreibt, muss die relevante Spec-Sektion als Teil seines Prompts erhalten. Nicht eine Zusammenfassung, sondern den tatsaechlichen Inhalt des Wiki-Dokuments (oder die relevanten Abschnitte daraus).
+
+2. **Spec-to-Code Tracing:** Vor der Implementierung einer Komponente wird geprueft, welche Anforderungen die Spec an diese Komponente stellt (Klassen, Methoden, Konstruktor-Signaturen, Abhaengigkeiten, Verhalten). Nach der Implementierung wird rueckwaerts geprueft, ob alle Anforderungen abgedeckt sind.
+
+3. **Diff-First bei bestehenden Komponenten:** Wenn eine Komponente bereits implementiert ist und ueberarbeitet werden soll, wird zuerst ein Spec-Diff erstellt (Spezifikation vs. Ist-Zustand). Die Implementierung arbeitet dann gezielt die Gaps ab — nicht pauschal "verbessern".
+
+4. **Spec-Referenz im Code:** Bei komplexen Implementierungen soll der JavaDoc-Header der Klasse auf das relevante Wiki-Kapitel verweisen (z.B. `@see docs/architecture/05-llm-integration.md, Abschnitt 8`).
+
+**Relevante Wiki-Dokumente:**
+
+| Modul | Spec-Dokument |
+|-------|--------------|
+| odin-api | `docs/architecture/00-system-overview.md`, `01-module-architecture.md` |
+| odin-data | `docs/architecture/02-realtime-pipeline.md` |
+| odin-broker | `docs/architecture/03-broker-integration.md` |
+| odin-brain (KPI) | `docs/architecture/04-kpi-engine.md` |
+| odin-brain (LLM) | `docs/architecture/05-llm-integration.md` |
+| odin-brain (Rules) | `docs/architecture/06-rules-engine.md` |
+| odin-execution | `docs/architecture/07-oms.md` |
+| Datenmodell | `docs/architecture/08-data-model.md` |
+| odin-frontend | `docs/architecture/09-frontend.md` |
+| Deployment | `docs/architecture/10-deployment.md` |
+
 ---
 
 ## 6. Phase 3: Test-Design & Test-Implementierung
@@ -313,6 +342,213 @@ Wenn ChatGPT-Review durchgefuehrt wird:
 4. KRITISCH und WICHTIG einarbeiten
 5. HINWEIS bewerten — einarbeiten wenn sinnvoll, ablehnen wenn Over-Engineering
 6. Ergebnis dem Nutzer berichten
+
+### 7.5 Sub-Agent-Entwicklungspipeline (PFLICHT bei Sub-Agent-Einsatz)
+
+Wenn der Haupt-Agent (Orchestrator) Sub-Agents fuer die Implementierung einsetzt, gilt die folgende dreistufige Pipeline. Der Orchestrator steuert ausschliesslich den Ablauf — er implementiert nicht selbst.
+
+#### 7.5.1 Pipeline-Uebersicht
+
+```
+                    ┌──────────────────────────────────────────────┐
+                    │                                              │
+                    ▼                                              │
+Orchestrator → [1. Coding-Agent] → [2. Spec-Review-Agent] → [3. Code-Quality-Agent]
+                    │                    │  + ChatGPT                │  + ChatGPT
+                    │                    │                           │
+                    │                    ▼                           ▼
+                    │              Protokoll-Datei            Protokoll-Datei
+                    │                    │                           │
+                    │                    └────────────┬──────────────┘
+                    │                                 │
+                    │                    Orchestrator prueft Findings
+                    │                                 │
+                    │                    ┌─────────────┴──────────────┐
+                    │                    │                            │
+                    │              Elementare                   Nur noch
+                    │              Findings?                    Kosmetik?
+                    │                    │                            │
+                    │                    ▼                            ▼
+                    └──── JA ── Neuer Coding-Agent              FERTIG
+                              (Findings einarbeiten)
+```
+
+**Abbruchkriterium:** Die Schleife endet, wenn in Iteration N die Reviews nur noch kosmetische Findings liefern (Namensoptimierungen, Kommentar-Verbesserungen, Formatierung). Elementare Findings (fehlende Methoden, falsche Signaturen, Spec-Abweichungen, Sicherheitsprobleme) erzwingen eine weitere Iteration.
+
+#### 7.5.2 Agent 1: Coding-Agent
+
+**Aufgabe:** Implementiert Code gemaess der Architektur-Spezifikation.
+
+**Input (PFLICHT):**
+- Relevante Spec-Sektion(en) aus dem Wiki (vollstaendiger Text, keine Zusammenfassung)
+- Betroffene bestehende Dateien (via Read-Tool)
+- Coding-Regeln (R5, R6, CSpec) als Kontext
+- Bei Iteration > 1: Findings aus der vorherigen Spec-Review und Code-Quality-Review
+
+**Output:**
+- Implementierte/geaenderte Java-Dateien
+- Protokoll-Datei im Komponentenverzeichnis (siehe 7.5.5)
+
+**Regeln:**
+- Muss die Spec als Eingabe erhalten — darf nicht aus Erinnerung oder Zusammenfassung arbeiten
+- Muss Compile-Faehigkeit sicherstellen (`mvn compile`)
+- Muss bestehende Tests gruen halten
+
+#### 7.5.3 Agent 2: Spec-Review-Agent
+
+**Aufgabe:** Prueft den Code systematisch gegen die Architektur-Spezifikation. Holt ChatGPT-Feedback zur Spec-Treue ein.
+
+**Input (PFLICHT):**
+- Die relevante Spec-Sektion(en) aus dem Wiki (vollstaendiger Text)
+- Die vom Coding-Agent erzeugten/geaenderten Dateien
+- Merge-File (via `tools/merge-files.sh`) aus Code + Spec fuer ChatGPT
+
+**Ablauf:**
+1. Spec-Sektion lesen und jede Anforderung extrahieren
+2. Code lesen und jede Anforderung gegen die Implementierung pruefen
+3. ChatGPT-Review ausfuehren: Code + Spec zusammen senden, Prompt: *"Vergleiche die Implementierung gegen die folgende Spezifikation. Identifiziere alle Abweichungen, fehlende Komponenten und Inkonsistenzen. Klassifiziere jedes Finding als KRITISCH / WICHTIG / HINWEIS."*
+4. Eigene Findings + ChatGPT-Findings in Protokoll-Datei zusammenfuehren
+
+**Output:**
+- Protokoll-Datei mit Findings (siehe 7.5.5)
+- Jedes Finding klassifiziert: KRITISCH / WICHTIG / HINWEIS
+
+**ChatGPT-Prompt-Template fuer Spec-Review:**
+```
+Pruefe die folgende Implementierung gegen die Architektur-Spezifikation.
+
+SPEZIFIKATION:
+[Spec-Text einfuegen]
+
+IMPLEMENTIERUNG:
+[Code einfuegen]
+
+Aufgabe:
+1. Vergleiche jeden Punkt der Spezifikation mit der Implementierung
+2. Identifiziere: Fehlende Klassen/Methoden, falsche Signaturen, fehlende Validierungen,
+   Abweichungen im Verhalten, fehlende Konfigurationsparameter
+3. Klassifiziere jedes Finding: KRITISCH (Spec-Verletzung mit funktionaler Auswirkung),
+   WICHTIG (Spec-Abweichung ohne sofortige Auswirkung), HINWEIS (Verbesserungsvorschlag)
+4. Ignoriere: Code-Style, Formatierung, JavaDoc-Qualitaet (das prueft ein anderer Agent)
+```
+
+#### 7.5.4 Agent 3: Code-Quality-Agent
+
+**Aufgabe:** Prueft Code-Qualitaet unabhaengig von der Spec-Treue. Holt ChatGPT-Feedback zur Code-Qualitaet ein.
+
+**Input (PFLICHT):**
+- Die vom Coding-Agent erzeugten/geaenderten Dateien
+- CLAUDE.md Coding-Regeln als Kontext
+
+**Ablauf:**
+1. Code lesen und gegen die Coding-Regeln (R5, R6, R7, CSpec, ODIN-spezifische Regeln) pruefen
+2. ChatGPT-Review ausfuehren: Code senden, Prompt fokussiert auf Qualitaet
+3. Findings in Protokoll-Datei schreiben
+
+**Pruefpunkte:**
+- Kein `var`, keine Magic Numbers, keine Reflection
+- Records fuer DTOs, Switch-Expressions, `.toList()`
+- MarketClock statt `Instant.now()` im Trading-Codepfad
+- Port-Abstraktion (gegen Interfaces programmieren)
+- Keine Fachmodul-Querverweise
+- JavaDoc auf allen public Members
+- Thread-Safety bei shared-mutable-state
+- Structured Logging bei Trading-kritischem Code
+- Keine eigenen Annahmen, keine Over-Engineering
+
+**Output:**
+- Protokoll-Datei mit Findings (siehe 7.5.5)
+- Jedes Finding klassifiziert: KRITISCH / WICHTIG / HINWEIS
+
+**ChatGPT-Prompt-Template fuer Quality-Review:**
+```
+Pruefe den folgenden Java-Code auf Qualitaet und Korrektheit.
+
+KONTEXT: ODIN ist ein automatischer Intraday-Trading-Agent (Java 21, Spring Boot 3.4.3).
+Coding-Regeln: Kein var, keine Magic Numbers, Records fuer DTOs, MarketClock statt
+Instant.now(), Port-Abstraktion gegen Interfaces, JavaDoc auf allen public Members.
+
+CODE:
+[Code einfuegen]
+
+Aufgabe:
+1. Pruefe Korrektheit: Logikfehler, Null-Safety, Edge Cases, Thread-Safety
+2. Pruefe Architektur: Dependency-Richtung, Singleton vs. Pro-Pipeline, Port-Abstraktion
+3. Pruefe Code-Qualitaet: Naming, Konstanten, Immutability, Fehlerbehandlung
+4. Klassifiziere jedes Finding: KRITISCH / WICHTIG / HINWEIS
+5. Ignoriere: Spec-Treue (das prueft ein anderer Agent)
+```
+
+#### 7.5.5 Protokoll-Dateien
+
+Jeder Agent-Durchgang erzeugt eine Protokoll-Datei im `reviews/`-Unterverzeichnis des betroffenen Moduls.
+
+**Verzeichnisstruktur:**
+```
+odin-{modul}/
+└── reviews/
+    └── {komponente}/
+        ├── 001-coding.md
+        ├── 001-spec-review.md
+        ├── 001-quality-review.md
+        ├── 002-coding.md          (Iteration 2: Findings eingearbeitet)
+        ├── 002-spec-review.md
+        └── 002-quality-review.md
+```
+
+**Beispiel:** LLM-Integration in odin-brain:
+```
+odin-brain/reviews/llm/001-coding.md
+odin-brain/reviews/llm/001-spec-review.md
+odin-brain/reviews/llm/001-quality-review.md
+```
+
+**Format der Protokoll-Dateien:**
+
+```markdown
+# [Agent-Typ] Protokoll — [Komponente] (Iteration [N])
+
+Datum: [YYYY-MM-DD]
+Modul: odin-{modul}
+Komponente: [Name]
+Spec-Dokument: [Wiki-Pfad]
+Bearbeitete Dateien: [Liste]
+
+## Findings
+
+### [KRITISCH/WICHTIG/HINWEIS] [Kurzbeschreibung]
+- **Datei:** [Pfad:Zeile]
+- **Problem:** [Beschreibung]
+- **Loesung:** [Vorgeschlagene Aenderung] (nur bei Coding-Agent Iteration > 1)
+- **Quelle:** Agent / ChatGPT
+
+## Zusammenfassung
+- Findings gesamt: [N]
+- KRITISCH: [N], WICHTIG: [N], HINWEIS: [N]
+- Empfehlung: [Weitere Iteration noetig / Abnahmebereit]
+```
+
+**Regeln fuer Protokoll-Dateien:**
+- Werden NICHT committet — sie sind Arbeitsdokumente, keine Repo-Artefakte
+- Werden nach Abschluss der Komponente geloescht (Housekeeping-Regel)
+- `.gitignore` muss `**/reviews/` enthalten
+- Bei mehreren Komponenten pro Agent-Aufruf: Eine Protokoll-Datei pro Komponente
+
+#### 7.5.6 Orchestrator-Verantwortung
+
+Der Haupt-Agent (Orchestrator) steuert die Pipeline und implementiert NICHT selbst:
+
+1. **Vor der Pipeline:** Identifiziere betroffene Komponenten und relevante Spec-Sektionen
+2. **Coding-Agent aufrufen:** Spec-Sektion + Coding-Regeln als Input uebergeben
+3. **Spec-Review-Agent aufrufen:** Spec-Sektion + erzeugten Code als Input, ChatGPT-Review ausfuehren
+4. **Code-Quality-Agent aufrufen:** Erzeugten Code als Input, ChatGPT-Review ausfuehren
+5. **Findings bewerten:** KRITISCH oder WICHTIG vorhanden? → Neuen Coding-Agent mit Findings aufrufen
+6. **Schleife wiederholen** bis nur noch HINWEIS-Findings uebrig sind
+7. **Abschluss:** Compile + Tests, Ergebnisbericht, Protokoll-Dateien aufraeumen
+
+**Parallelisierungsregel:** Spec-Review-Agent und Code-Quality-Agent duerfen NICHT parallel laufen, wenn beide ChatGPT nutzen (CLAUDE.md: maximal ein Agent gleichzeitig an ChatGPT). Der Orchestrator muss sie sequentiell aufrufen.
+
+**Maximale Iterationen:** Nach 3 Iterationen ohne Konvergenz (immer noch KRITISCH-Findings) ist Human-Eskalation PFLICHT. Endlos-Schleifen werden durch dieses Limit verhindert.
 
 ---
 
