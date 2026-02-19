@@ -332,6 +332,44 @@ Der Recovery-Trade ist das primaere Multi-Cycle-Szenario. Er setzt voraus, dass:
 
 Kurzer opportunistischer Trade bei klaren kurzfristigen Signalen. Kleine Position, enge Stops, schneller Exit. Dieser Zyklus-Typ ist explizit als P4-Feature geplant und wird in der initialen Multi-Cycle-Implementierung **nicht** unterstuetzt.
 
+#### Aufstocken (Position Scale-Up)
+
+Die bisherigen Zyklen-Typen gehen davon aus, dass die Position zwischen den Zyklen auf **null** faellt (Re-Entry). Es gibt jedoch eine komplementaere Variante: Die Position wird nicht vollstaendig geschlossen, sondern nur reduziert — und anschliessend bei bestaetigter Recovery wieder aufgestockt.
+
+**Abgrenzung zu Re-Entry:**
+
+| Merkmal | Re-Entry (Zyklen-Typ 2) | Aufstocken |
+|---------|--------------------------|------------|
+| Position zwischen Zyklen | 0 (komplett flat) | > 0 (Runner-Anteil gehalten) |
+| Pipeline-State | FLAT_INTRADAY | POSITIONED (unveraendert) |
+| Trigger | `entry_timing_bias = ALLOW_RE_ENTRY` | LLM-Recovery-Signal + KPI-Bestaetigung bei bestehender Position |
+| Semantik | Neuer Trade | Vergroesserung einer bestehenden Position |
+
+**Typisches Szenario:**
+
+1. **Plateau:** 80-85% der Position werden auf dem Plateau verkauft (Profit-Protection via TACTICAL_EXIT). Der Runner-Anteil (15-20%) wird bewusst gehalten.
+2. **Drawdown:** Der Runner laeuft durch den Drawdown. Der Trailing-Stop schuetzt bei einem vordefinierten Level (z.B. Entry + 0.10R). Solange der Runner-Stop haelt, bleibt die Position offen.
+3. **Recovery-Signal:** Das LLM erkennt eine nachhaltige Erholung (V-Recovery, Support-Bestaetigung, Volumen-Shift). Die KPI-Engine bestaetigt (EMA-Rekreuzung, RSI steigend).
+4. **Aufstocken:** Die Position wird von 15-20% auf 60-80% aufgestockt. Dies ist eine Add-to-Position-Order bei bestehender Position, kein Re-Entry.
+
+**Vorteil gegenueber Re-Entry:** Der Runner haelt den "Fuss in der Tuer". Wenn die Recovery frueh und schnell kommt, ist man bereits investiert und kann sofort aufstocken — ohne auf einen komplett neuen Entry-Trigger warten zu muessen.
+
+**OMS-Implikationen fuer Aufstocken:**
+
+Das Aufstocken erfordert spezifische Erweiterungen im Order Management System, da die Position aus Tranchen mit unterschiedlichen Charakteristiken besteht:
+
+| Aspekt | Verhalten |
+|--------|-----------|
+| **Order-Typ** | Add-to-Position bei bestehender Position (keine neue Trade-Eroeffnung) |
+| **Entry-Preis** | Aufgestockter Teil hat eigenen Entry-Preis, unabhaengig vom urspruenglichen Entry |
+| **Entry-ATR** | Aufgestockter Teil verwendet den ATR-Wert zum Zeitpunkt des Aufstockens (aktueller ATR), nicht den Entry-ATR von Zyklus 1 |
+| **Trailing-Stop** | Fuer neue Shares: eigener Entry-ATR als Trail-Basis. Fuer bestehende Shares (Runner): unveraenderter Entry-ATR aus Zyklus 1 |
+| **Mischkalkulation** | Position hat Tranchen mit unterschiedlichen Entry-Preisen und Entry-ATRs. P&L-Berechnung pro Tranche |
+| **Risk-Budget** | Bereits realisierter P&L aus den verkauften Tranchen von Zyklus 1 wird beruecksichtigt. Aufstockungsgroesse = f(realisierter Gewinn, verbleibendes Tagesbudget) |
+| **Cycle-Counter** | Aufstocken zaehlt als eigener Zyklus (Cycle N+1), da es eine neue Order-Entscheidung darstellt |
+
+> **Architektur-Hinweis:** Aufstocken ist konzeptionell anspruchsvoller als Re-Entry, da das OMS gleichzeitig Tranchen mit unterschiedlichen Entry-Preisen und ATR-Werten verwalten muss. Die bestehende Tranchen-Logik (FK Kap. 7, Scaling-Out) bietet die Grundlage, muss aber um die Faehigkeit erweitert werden, Tranchen mit unterschiedlichen Entry-Parametern zu fuehren.
+
 ### 7.3 LLM-Rolle bei Multi-Cycle-Entscheidungen
 
 Multi-Cycle-Day erfordert vier Arten von LLM-Entscheidungen, die ein statischer Algorithmus nicht abbilden kann:
@@ -407,7 +445,7 @@ Das folgende Szenario zeigt einen konkreten Multi-Cycle-Day anhand von IREN (Iri
 | 20:30 - 21:00 | 42.00 → 42.06 | Position laeuft | Konservativerer Trail (enger als Zyklus 1). LLM: Subregime TREND_UP/EARLY |
 | ~21:00 (Close) | 42.06 | **Exit** | EOD-Flat (FORCED_CLOSE). Realisierter Gewinn: ~0.06 USD/Aktie (minimal, aber risikokontrolliert) |
 
-#### Tagesbilanz
+#### Tagesbilanz (Re-Entry-Variante)
 
 | Metrik | Zyklus 1 | Zyklus 2 | Gesamt |
 |--------|----------|----------|--------|
@@ -418,6 +456,51 @@ Das folgende Szenario zeigt einen konkreten Multi-Cycle-Day anhand von IREN (Iri
 | Haltedauer | ~100 Min | ~30 Min | ~130 Min |
 
 > **Vergleich mit Single-Trade-Day:** Im Single-Trade-Modell haette ODIN entweder (a) auf dem Plateau gehalten und den Drawdown auf 41.15 mitgenommen (Trailing-Stop bei ~42.80 ausgeloest, Gewinn ~0.80 USD/Aktie) oder (b) nach dem Exit auf dem Plateau den Tag beendet (Gewinn ~1.50 USD/Aktie, kein Zyklus 2). Multi-Cycle-Day ermoeglicht das Beste aus beiden Welten: Gewinnrealisierung auf dem Plateau *und* Partizipation an der Recovery.
+
+#### Alternative: Aufstocken-Variante desselben Tages
+
+Das folgende Szenario zeigt denselben IREN-Tag, aber mit der Aufstocken-Strategie statt komplettem Re-Entry. Der entscheidende Unterschied: Die Position wird auf dem Plateau nicht vollstaendig geschlossen — ein Runner-Anteil bleibt bestehen.
+
+**Zyklus 1: Trend-Riding mit partiellem Exit**
+
+| Zeitpunkt (UTC) | Kurs | Aktion | Begruendung |
+|-----------------|------|--------|-------------|
+| ~14:50 | 42.00 | **Entry (100%)** | Identisch mit Re-Entry-Variante |
+| ~16:15 | 43.50 - 43.73 | Plateau-Erkennung | LLM erkennt Exhaustion. `exit_bias = EXIT_NOW` |
+| ~16:30 | ~43.50 | **Partieller Exit (85%)** | TACTICAL_EXIT: 85% der Position verkauft. **Runner (15%) wird bewusst gehalten.** Trailing-Stop fuer Runner bei ~42.30 (Entry-ATR-basiert) |
+
+**Drawdown: Runner haelt durch**
+
+| Zeitpunkt (UTC) | Kurs | Position | Trailing-Stop Runner |
+|-----------------|------|----------|---------------------|
+| 16:30 - 17:30 | 43.50 → 42.00 | 15% (Runner) | ~42.30 — haelt |
+| 17:30 - 19:00 | 42.00 → 41.15 | 15% (Runner) | ~42.30 — **wird NICHT ausgeloest** (Low 41.15 < Stop 42.30 → Stop muesste ausloesen) |
+
+> **Anmerkung zum Szenario:** Bei einem Drawdown bis 41.15 wuerde der Runner-Stop bei ~42.30 tatsaechlich ausgeloest, und das Szenario wuerde in einen normalen Re-Entry uebergehen. Die Aufstocken-Variante funktioniert nur, wenn der Drawdown den Runner-Stop nicht erreicht. Fuer das Beispiel nehmen wir an, der Runner-Stop liegt tiefer (z.B. bei ~41.00 basierend auf einem breiteren Trail-Faktor fuer den Runner), sodass der Runner den Drawdown ueberlebt.
+
+| Zeitpunkt (UTC) | Kurs | Position | Trailing-Stop Runner |
+|-----------------|------|----------|---------------------|
+| 16:30 - 19:00 | 43.50 → 41.15 | 15% (Runner) | ~41.00 — haelt knapp |
+| 19:00 - 20:00 | 41.15 - 41.50 | 15% (Runner) | ~41.00 — stabil |
+
+**Aufstocken bei Recovery-Signal**
+
+| Zeitpunkt (UTC) | Kurs | Aktion | Begruendung |
+|-----------------|------|--------|-------------|
+| ~20:00 | ~41.50 | **Aufstocken: 15% → 65%** | LLM: Recovery-Signal bestaetigt. KPI: EMA-Rekreuzung, Volumen-Shift. Add-to-Position-Order fuer 50% zusaetzliche Shares |
+| 20:00 - 21:00 | 41.50 → 42.06 | Position laeuft (65%) | Zwei Tranchen: Runner (15%) mit Entry 42.00, Aufstockung (50%) mit Entry 41.50. Unterschiedliche Trail-Basis |
+| ~21:00 (Close) | 42.06 | **Exit (100%)** | EOD-Flat. Runner: 42.06 - 42.00 = +0.06/Aktie. Aufstockung: 42.06 - 41.50 = +0.56/Aktie |
+
+**Tagesbilanz (Aufstocken-Variante)**
+
+| Metrik | Plateau-Exit (85%) | Runner gehalten (15%) | Aufstockung (50%) | Gesamt |
+|--------|--------------------|-----------------------|-------------------|--------|
+| Entry-Preis | 42.00 | 42.00 | 41.50 | -- |
+| Exit-Preis | ~43.50 | ~42.06 | ~42.06 | -- |
+| Gewinn/Aktie | ~1.50 USD | ~0.06 USD | ~0.56 USD | -- |
+| Gewichteter Beitrag | 85% × 1.50 = 1.275 | 15% × 0.06 = 0.009 | 50% × 0.56 = 0.280 | **~1.56 USD** |
+
+> **Vergleich Re-Entry vs. Aufstocken:** In diesem konkreten Beispiel ist die Tagesbilanz aehnlich. Der Vorteil des Aufstockens liegt in Szenarien, in denen die Recovery **frueher und schneller** kommt — der Runner ist bereits investiert und die Aufstockung kann sofort erfolgen, waehrend der Re-Entry erst den kompletten Entry-Prozess (FLAT_INTRADAY → SEEKING_ENTRY → Entry-Bestaetigung) durchlaufen muss. Der Nachteil: Wenn der Drawdown den Runner-Stop auslöst, verliert man den "Fuss in der Tuer" und faehrt schlechter als bei einem sauberen Exit auf dem Plateau.
 
 ### 7.5 Architektur-Implikationen
 
