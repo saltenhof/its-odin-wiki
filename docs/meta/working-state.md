@@ -81,6 +81,8 @@ Alle 10 Work Packages aus dem Anforderungskatalog (`frontend/requirements/web-ap
 | GET | `/api/v1/backtests/{id}/days` | odin-app | WP-05 |
 | GET | `/api/v1/data/availability` | odin-app | WP-05 |
 | POST | `/api/v1/data/download` | odin-app | WP-05 |
+| POST | `/api/v1/data/validate-symbol` | odin-app | Session 2026-02-19 |
+| GET | `/api/v1/backtests/exists?name=...` | odin-app | Session 2026-02-19 |
 | POST | `/api/v1/backtests/{id}/optimize` | odin-app | WP-09 |
 | GET | `/api/v1/optimizations/{id}` | odin-app | WP-09 |
 | GET | `/api/v1/parameter-sets` | odin-app | WP-09 |
@@ -102,6 +104,9 @@ Alle 10 Work Packages aus dem Anforderungskatalog (`frontend/requirements/web-ap
 | V016 | `indicator_snapshot` Tabelle | WP-06 |
 | V017 | `optimization_run` Tabelle | WP-09 |
 | V018 | `parameter_set` Tabelle | WP-09 |
+| V019 | `iteration_number` + `max_iterations` in optimization_run | Session 2026-02-19 |
+| V020 | `anchored_vwap` in indicator_snapshot | Session 2026-02-19 |
+| V021 | `name` in backtest_run | Session 2026-02-19 |
 
 #### Wichtige Architekturentscheidungen (WP-Phase)
 
@@ -116,14 +121,50 @@ Alle 10 Work Packages aus dem Anforderungskatalog (`frontend/requirements/web-ap
 - **Jackson2ObjectMapperBuilderCustomizer:** Statt eigenem ObjectMapper-Bean (ChatGPT Review Finding)
 - **rejectedValue entfernt:** Sicherheitsrisiko bei Validation-Error-Responses (ChatGPT Review Finding)
 
+### Session 2026-02-19: Backtest-UX, Bug-Fixes, Feature-Completion
+
+#### Offene Punkte geschlossen
+
+| Punkt | Status | Details |
+|-------|--------|---------|
+| 8 pre-existing Test-Failures (LlmAnalystOrchestratorTest) | GEFIXT | MarketClock Stub fehlte, nun korrekt gemockt |
+| REQ-KPI-003 (Anchored VWAP) | IMPLEMENTIERT | V020 Migration, IndicatorSnapshotEntity, IndicatorCalculationService, VwapAccumulator |
+| REQ-OPT-006 (Iterative Optimierung) | IMPLEMENTIERT | Auto-Chain, V019 Migration, maxIterations 1-20 |
+| REQ-LIVE-004 (Live-Bars in DB) | IMPLEMENTIERT | LiveBarPersister Port, LiveBarJdbcPersister, Pipeline-Integration |
+| REQ-CHART-004 (Multi-Timeframe) | War bereits fertig | 5m→15m, 1m→5m, 1m→15m alle implementiert |
+
+#### Neue Features
+
+- **Exchange-Auswahl:** Dropdown mit 40+ Handelsplaetzen (ISO MIC), Yahoo-Suffix-Mapping
+- **Symbol-Validierung:** Per-Symbol Yahoo-Probe, Chip-basierte Eingabe mit Blur-Add
+- **Backtest-Name:** End-to-End (V021 Migration, Entity, API, Frontend), Uniqueness-Check
+- **Datums-UX:** Default=gestern, Auto-Follow Enddate, Plausibilitaets-Check
+- **Data-Availability-Workflow:** Automatischer Check, Import-Angebot, kein manueller Button
+- **Intervall entfernt:** System setzt fix FIVE_MINUTES
+- **Windows CMD-Skripte:** start-backend.cmd, stop-backend.cmd
+
+#### Bug-Fixes
+
+- **SSE Connection:** Heartbeat 5s, SseEmitter Timeout fix, named events, StrictMode deferred disconnect, connecting-State
+- **instrumentId null:** 3 Bugs (LifecycleManager, JdbcTypeCode, FK violation)
+- **toFixed crash:** Feldnamen-Mapping Backend→Frontend
+- **Submit-Button:** submitBlockReason zeigt dem User warum disabled
+- **BacktestAsyncConfig:** TaskExecutor Rueckgabetyp
+
+#### Neue REST-Endpoints (Session)
+
+| Methode | Endpoint | Zweck |
+|---------|----------|-------|
+| POST | `/api/v1/data/validate-symbol` | Symbol-Validierung gegen Yahoo |
+| GET | `/api/v1/backtests/exists?name=...` | Name-Uniqueness-Check |
+
+#### Playwright E2E-Test
+
+- `e2e/backtest-creation.spec.ts` — Full flow Test, GRUEN
+
 ### Bekannte offene Punkte
 
-- **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain) — nicht WP-bezogen, vorher bereits vorhanden
 - **Unstaged Dateien** aus frueheren Sessions: `MarketOrderJustification.java`, `V014__fix_exit_reason_check_constraint.sql`, Aenderungen in `LlmAnalystOrchestrator.java`, `PromptBuilder.java`, `OdinEWrapper.java`, `OrderManagementService.java`
-- **REQ-CHART-004** (Multi-Timeframe 15m): FERTIG — BarAggregationService unterstuetzt 5m→15m, 1m→5m, 1m→15m. ChartController mit Fallback-Kaskade
-- **REQ-KPI-003** (Anchored VWAP): FERTIG — AnchoredVwapCalculator (odin-data), IndicatorSnapshotEntity + V020 Migration (anchored_vwap Spalte), On-the-fly AVWAP-Berechnung (VwapAccumulator in IndicatorCalculationService), IndicatorDto-Mapping. ChatGPT-reviewed
-- **REQ-OPT-006** (Iterative Optimierung): Grundstruktur da (parentOptimizationId), Auto-Chain nicht implementiert
-- **REQ-LIVE-004** (Live-Bars in DB): P2, nicht implementiert
 
 ### Uebergreifende Architekturentscheidungen (aus Konzeptphase)
 
@@ -163,23 +204,17 @@ Frontend und Backend laufen End-to-End gegen die echte Datenbank.
 | Komponente | URL | Details |
 |-----------|-----|---------|
 | Frontend (Vite Dev) | `http://localhost:3000` | React 18, HMR, Dark Theme |
-| Backend (Spring Boot) | `http://localhost:3300` | SIMULATION-Modus, PostgreSQL, Flyway V001–V018 |
+| Backend (Spring Boot) | `http://localhost:3300` | SIMULATION-Modus, PostgreSQL, Flyway V001–V021 |
 
 **Infrastruktur:**
-- `tools/start-backend.sh` — Startet Backend (Port 3300), wartet auf Health-Check, speichert PID
-- `tools/stop-backend.sh` — Graceful Shutdown via `POST /actuator/shutdown`, Fallback: PID-Kill
+- `tools/start-backend.sh` / `start-backend.cmd` — Startet Backend (Port 3300), wartet auf Health-Check, speichert PID
+- `tools/stop-backend.sh` / `stop-backend.cmd` — Graceful Shutdown via `POST /actuator/shutdown`, Fallback: PID-Kill
 - Spring Boot Actuator: `health` + `shutdown` Endpoints exponiert
 - CORS: `localhost:3000` erlaubt (GET, POST, PUT, DELETE, OPTIONS + Last-Event-ID Header)
 - DB-Credentials: `ODIN_DB_USER` / `ODIN_DB_PASSWORD` (Defaults in start-backend.sh)
 - Mock-Daten-Fallback via `VITE_USE_MOCKS=false` (default) deaktiviert
 - SSE-URL-Bug gefixt (instrument → instruments)
 
-**Commits (noch nicht gepusht):**
-- Backend: Actuator-Dependency, Port 3300, CORS-Erweiterung, Start/Stop-Skripte
-- Frontend: `.env.development` (API-URL 3300, Mocks off), Mock-Gating in allen Hooks/Stores
-
 ### Offene Punkte
 
-- **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain)
-- **REQ-OPT-006** (Iterative Optimierung): Auto-Chain nicht implementiert
-- **REQ-LIVE-004** (Live-Bars in DB): P2, nicht implementiert
+- **Unstaged Dateien** aus frueheren Sessions pruefen ob noch relevant
