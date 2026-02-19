@@ -156,7 +156,29 @@ React-Frontend in `its-odin-ui/`: Dashboard, Backtesting, Trading Operations, Ch
 | Phase 4: Integration + Smoke-Test | FERTIG | Sub-Agent | `5d68983` — Chart-Integration, Token-Fix, 196 Module, 0 Fehler |
 | Phase 5: Qualitaetssicherung | FERTIG | 2 QA-Agents | `11b1ba9` — 7 Bugs, 10 Arch-Violations gefixt, 197 Module, 0 Fehler |
 
-### Offene Punkte (unveraendert)
+### End-to-End-Betrieb: FERTIG
+
+Frontend und Backend laufen End-to-End gegen die echte Datenbank.
+
+| Komponente | URL | Details |
+|-----------|-----|---------|
+| Frontend (Vite Dev) | `http://localhost:3000` | React 18, HMR, Dark Theme |
+| Backend (Spring Boot) | `http://localhost:3300` | SIMULATION-Modus, PostgreSQL, Flyway V001–V018 |
+
+**Infrastruktur:**
+- `tools/start-backend.sh` — Startet Backend (Port 3300), wartet auf Health-Check, speichert PID
+- `tools/stop-backend.sh` — Graceful Shutdown via `POST /actuator/shutdown`, Fallback: PID-Kill
+- Spring Boot Actuator: `health` + `shutdown` Endpoints exponiert
+- CORS: `localhost:3000` erlaubt (GET, POST, PUT, DELETE, OPTIONS + Last-Event-ID Header)
+- DB-Credentials: `ODIN_DB_USER` / `ODIN_DB_PASSWORD` (Defaults in start-backend.sh)
+- Mock-Daten-Fallback via `VITE_USE_MOCKS=false` (default) deaktiviert
+- SSE-URL-Bug gefixt (instrument → instruments)
+
+**Commits (noch nicht gepusht):**
+- Backend: Actuator-Dependency, Port 3300, CORS-Erweiterung, Start/Stop-Skripte
+- Frontend: `.env.development` (API-URL 3300, Mocks off), Mock-Gating in allen Hooks/Stores
+
+### Offene Punkte
 
 - **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain)
 - **REQ-CHART-004** (Multi-Timeframe 15m): Nur 5m→15m
