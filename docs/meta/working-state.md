@@ -140,11 +140,26 @@ Alle 10 Work Packages aus dem Anforderungskatalog (`frontend/requirements/web-ap
 
 ---
 
-## Naechste Phase (offen)
+## Frontend-Durchentwicklung
 
-Moegliche naechste Schritte:
-- Integrationstests / End-to-End-Verifikation der REST-APIs
-- Frontend-Entwicklung (React, its-odin-ui)
-- Pre-existing Test-Failures in LlmAnalystOrchestratorTest fixen
-- P2-Requirements umsetzen (AVWAP, Live-Bars, Iterative Optimierung)
-- Applikation starten und manuell verifizieren
+React-Frontend in `its-odin-ui/`: Dashboard, Backtesting, Trading Operations, Chart-Komponente.
+
+| Phase | Status | Agent | Ergebnis |
+|-------|--------|-------|----------|
+| Phase 0: Bootstrap | FERTIG | Sub-Agent | `441104e` — 49 Dateien, Vite+React+TS, Design System, Routing, Stores, SSE/REST Clients |
+| Phase 1: API-Design | FERTIG | Sub-Agent | `80d3c40` — api-interface-spec.md: 29 Endpoints inventarisiert, 4 neue, 7 Aenderungen |
+| Phase 2A: Shared + Dashboard | FERTIG | Sub-Agent | `b9bed08` — 10 Shared Components, Dashboard Domain, SSE Integration |
+| Phase 2B: Backtesting-Domaene | FERTIG | Sub-Agent | `1d6e9fc` — 41 Dateien, 4 Pages, 11 Components, Store, Mocks |
+| Phase 2C: Trading-Operations | FERTIG | Sub-Agent | `c38819d` — 46 Dateien, 5 Pages, 12 Components, SSE Streams |
+| Phase 2D: Backend-API-Anpassungen | FERTIG | Sub-Agent | `7d6d737` — 4 neue + 4 geaenderte Endpoints, 193 Tests pass |
+| Phase 3: Chart-Komponente | FERTIG | Sub-Agent | `b9bed08` — 30 Dateien, Multi-Panel, 15 Layers, TradingView LWC v4 |
+| Phase 4: Integration + Smoke-Test | FERTIG | Sub-Agent | `5d68983` — Chart-Integration, Token-Fix, 196 Module, 0 Fehler |
+| Phase 5: Qualitaetssicherung | FERTIG | 2 QA-Agents | `11b1ba9` — 7 Bugs, 10 Arch-Violations gefixt, 197 Module, 0 Fehler |
+
+### Offene Punkte (unveraendert)
+
+- **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain)
+- **REQ-CHART-004** (Multi-Timeframe 15m): Nur 5m→15m
+- **REQ-KPI-003** (Anchored VWAP): P2, nicht implementiert
+- **REQ-OPT-006** (Iterative Optimierung): Auto-Chain nicht implementiert
+- **REQ-LIVE-004** (Live-Bars in DB): P2, nicht implementiert
