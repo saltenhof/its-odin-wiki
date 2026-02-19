@@ -8,3 +8,4 @@ Kap 0 (Systemuebersicht) ist querschnittlich und gilt fuer Backend und Frontend 
 |---------|-------|---------|
 | [Kap 9](09-frontend.md) | React-Frontend (API-Contracts, Kommunikation, Komponenten) | v0.3 |
 | [Architekturkonzept](frontend-architecture-concept.md) | Design System & Domain-Driven Modulstruktur | v1.0 |
+| [Chart-Komponente](chart-component-concept.md) | Intraday-Chart: Multi-Panel, Layer-System, Live-Updates | v1.0 |
