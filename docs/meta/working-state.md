@@ -1,135 +1,150 @@
-# Working State — Architekturkonzept ODIN
+# Working State — ODIN
 
-Stand: 2026-02-15
+Stand: 2026-02-19
 
 ---
 
 ## Aktueller Stand
 
-### Alle Kapitel 0–10: FERTIG (v0.1/v0.2)
+### Architekturkonzept: FERTIG (v0.1–v0.7)
 
-Alle 11 Kapitel sind geschrieben und haben ChatGPT R1 durchlaufen. Kapitel 0 hat zusaetzlich R2.
+Alle 11 Architekturkapitel sind geschrieben, reviewed (ChatGPT R1–R4), und durch zwei Cross-Kapitel-Gesamtreviews validiert. FINAL GO.
 
-| Kapitel | Status | ChatGPT |
-|---------|--------|---------|
-| 0 — Gesamtuebersicht | v0.2 | R1+R2+CrossReview GO |
-| 1 — Modularchitektur | v0.1 | R1 GO |
-| 2 — Echtzeit-Datenpipeline | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 3 — Broker-Anbindung | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 4 — KPI-Engine | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 5 — LLM-Integration | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 6 — Rules Engine | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 7 — OMS | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 8 — Datenmodell | v0.1 | R1 GO m.B. → Fixes eingearbeitet + CrossReview |
-| 9 — Frontend | v0.1 | R1 GO m.B. → Fixes eingearbeitet |
-| 10 — Deployment | v0.1 | R1 GO m.B. → Fixes eingearbeitet + CrossReview |
+| Kapitel | Version | Status |
+|---------|---------|--------|
+| 0 — Gesamtuebersicht | v0.7 | FERTIG (3 Iter. + Cross-Review + DDD-Modulschnitt) |
+| 1 — Modularchitektur | v0.5 | FERTIG (3 Iter. + DDD-Modulschnitt) |
+| 2 — Echtzeit-Datenpipeline | v0.4 | FERTIG (3 Iter.) |
+| 3 — Broker-Anbindung | v0.3 | FERTIG (3 Iter.) |
+| 4 — KPI-Engine | v0.3 | FERTIG (3 Iter.) |
+| 5 — LLM-Integration | v0.3 | FERTIG (3 Iter.) |
+| 6 — Rules Engine | v0.3 | FERTIG (2 Iter.) |
+| 7 — OMS | v0.3 | FERTIG (4 Iter.) |
+| 8 — Datenmodell | v0.6 | FERTIG (3 Iter. + Cross-Review R1+R2 + DDD-Modulschnitt) |
+| 9 — Frontend | v0.3 | FERTIG (2 Iter.) |
+| 10 — Deployment | v0.6 | FERTIG (3 Iter. + Cross-Review R1+R2 + DDD-Modulschnitt) |
+| Guardrail Module Structure | v1.2 | FERTIG |
+| Guardrail Development Process | v1.2 | FERTIG |
+| Guardrail Frontend | v1.0 | FERTIG |
 
-### Uebergreifende Architekturentscheidungen (aus Reviews)
+### Web Application Transformation: FERTIG (WP-01 bis WP-10)
 
-- Kill-Switch-Ownership: odin-data ESCALATEt, odin-core entscheidet
+Alle 10 Work Packages aus dem Anforderungskatalog (`requirements/web-application-requirements.md`) sind implementiert, ChatGPT-reviewed (wo moeglich), getestet und committed.
+
+**Kennzahlen:**
+- ~9.500 Zeilen neuer Code
+- ~170 neue Tests
+- 4 Flyway-Migrationen (V015–V018)
+- 25+ REST-Endpoints
+- 7 Commits auf `main`
+
+#### Work Package Status
+
+| WP | Titel | Groesse | Status | Commit | ChatGPT Review |
+|----|-------|---------|--------|--------|---------------|
+| WP-01 | Web Foundation | S | FERTIG | `06eeb64` | R1 — 4 Findings umgesetzt |
+| WP-03 | TradingRun & Trade API | M | FERTIG | `f317e47` | R1 (Phase 2 combined) |
+| WP-04 | Chart Data API Bars | M | FERTIG | `f317e47` | R1 — Validation Bug gefunden + behoben |
+| WP-07 | DecisionLog & LLM-History | S | FERTIG | `f317e47` | R1 (Phase 2 combined) |
+| WP-02 | Backtest Integration | L | FERTIG | `8116128` | Pool-Fehler, ohne Review |
+| WP-05 | Backtest-Historie | M | FERTIG | `f15cfdd` | — |
+| WP-06 | KPI Erweiterung | L | FERTIG | `d0626f7` | — |
+| WP-10 | API-Versionierung | S | FERTIG | `d0626f7` | — |
+| WP-08 | SSE Live Monitoring | XL | FERTIG | `0ada628` | R1 — 9 Findings umgesetzt |
+| WP-09 | LLM Optimization Loop | XL | FERTIG | `0ada628` | R1 — 7 Findings umgesetzt |
+
+#### Review-Fixes Commit
+
+| Commit | Beschreibung |
+|--------|-------------|
+| `65481e6` | ChatGPT Phase-2-Review: ChartController Validation Bug, Pagination Tiebreaker JavaDoc |
+
+#### Implementierte REST-Endpoints
+
+| Methode | Endpoint | Modul | WP |
+|---------|----------|-------|-----|
+| GET | `/api/v1/health` | odin-app | WP-10 |
+| GET | `/api/v1/instruments` | odin-app | WP-10 |
+| POST | `/api/v1/runs/simulation` | odin-app | WP-10 |
+| GET | `/api/v1/runs` | odin-app | WP-03 |
+| GET | `/api/v1/runs/{runId}` | odin-app | WP-03 |
+| GET | `/api/v1/runs/{runId}/trades` | odin-app | WP-03 |
+| GET | `/api/v1/runs/{runId}/decisions` | odin-app | WP-03 |
+| GET | `/api/v1/runs/{runId}/llm-history` | odin-app | WP-07 |
+| GET | `/api/v1/charts/{symbol}/bars` | odin-app | WP-04 |
+| GET | `/api/v1/charts/{symbol}/indicators` | odin-app | WP-06 |
+| POST | `/api/v1/backtests` | odin-app | WP-02 |
+| GET | `/api/v1/backtests/{id}` | odin-app | WP-02 |
+| GET | `/api/v1/backtests/{id}/report` | odin-app | WP-02 |
+| GET | `/api/v1/backtests` | odin-app | WP-05 |
+| POST | `/api/v1/backtests/{id}/cancel` | odin-app | WP-05 |
+| GET | `/api/v1/backtests/{id}/days` | odin-app | WP-05 |
+| GET | `/api/v1/data/availability` | odin-app | WP-05 |
+| POST | `/api/v1/data/download` | odin-app | WP-05 |
+| POST | `/api/v1/backtests/{id}/optimize` | odin-app | WP-09 |
+| GET | `/api/v1/optimizations/{id}` | odin-app | WP-09 |
+| GET | `/api/v1/parameter-sets` | odin-app | WP-09 |
+| POST | `/api/v1/parameter-sets` | odin-app | WP-09 |
+| PUT | `/api/v1/parameter-sets/{id}` | odin-app | WP-09 |
+| DELETE | `/api/v1/parameter-sets/{id}` | odin-app | WP-09 |
+| GET | `/api/v1/stream/instruments/{id}` | odin-app | WP-08 |
+| GET | `/api/v1/stream/global` | odin-app | WP-08 |
+| POST | `/api/v1/controls/kill` | odin-app | WP-08 |
+| POST | `/api/v1/controls/pause/{id}` | odin-app | WP-08 |
+| POST | `/api/v1/controls/resume/{id}` | odin-app | WP-08 |
+
+#### Flyway-Migrationen
+
+| Migration | Inhalt | WP |
+|-----------|--------|-----|
+| V015 | `backtest_run` Tabelle | WP-02 |
+| V015_1 | `daily_results_json` Spalte in backtest_run | WP-05 |
+| V016 | `indicator_snapshot` Tabelle | WP-06 |
+| V017 | `optimization_run` Tabelle | WP-09 |
+| V018 | `parameter_set` Tabelle | WP-09 |
+
+#### Wichtige Architekturentscheidungen (WP-Phase)
+
+- **odin-backtest als Library:** `@Profile("cli")` auf BacktestApplication, spring-boot-maven-plugin entfernt. odin-app integriert den BacktestRunner direkt
+- **Async Backtest Execution:** Dedizierter ThreadPoolTaskExecutor, `@Async`, 202 Accepted Pattern
+- **Dual-Mode Indicators:** Persisted (IndicatorSnapshotEntity) vs. On-the-fly (IndicatorCalculationService)
+- **SSE mit Ring Buffer:** SseEmitterManager + SseRingBuffer fuer Reconnect-Replay (60s, konfigurierbar)
+- **PipelineStateMachine HALTED:** Neuer State fuer Pause/Resume, nur ueber `pause()`/`resume()` erreichbar
+- **ParameterOverrideApplier:** Flat JSON Keys → immutable Record-Konstruktoren (kein Reflection)
+- **JPQL Constructor Projections:** LLM-Payload-Felder in Listenabfragen ausgeschlossen (LlmCallSummaryProjection)
+- **Multi-Path API Versioning:** `@GetMapping({"/api/v1/...", "/api/..."})` fuer Backward-Kompatibilitaet
+- **Jackson2ObjectMapperBuilderCustomizer:** Statt eigenem ObjectMapper-Bean (ChatGPT Review Finding)
+- **rejectedValue entfernt:** Sicherheitsrisiko bei Validation-Error-Responses (ChatGPT Review Finding)
+
+### Bekannte offene Punkte
+
+- **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain) — nicht WP-bezogen, vorher bereits vorhanden
+- **Unstaged Dateien** aus frueheren Sessions: `MarketOrderJustification.java`, `V014__fix_exit_reason_check_constraint.sql`, Aenderungen in `LlmAnalystOrchestrator.java`, `PromptBuilder.java`, `OdinEWrapper.java`, `OrderManagementService.java`
+- **REQ-CHART-004** (Multi-Timeframe 15m): On-the-fly Aggregation implementiert (BarAggregationService), aber nur 5m→15m
+- **REQ-KPI-003** (Anchored VWAP): P2, nicht implementiert
+- **REQ-OPT-006** (Iterative Optimierung): Grundstruktur da (parentOptimizationId), Auto-Chain nicht implementiert
+- **REQ-LIVE-004** (Live-Bars in DB): P2, nicht implementiert
+
+### Uebergreifende Architekturentscheidungen (aus Konzeptphase)
+
+- Kill-Switch-Ownership: odin-data eskaliert, odin-core entscheidet
 - Regime-Bestimmung: KPI deterministisch (primaer), LLM sekundaer
 - Risk-Limits: Global ueber alle Pipelines (AccountRiskState in odin-core)
 - VWAP: Source-of-Truth ausschliesslich in odin-data
-- Currency/Exchange-Awareness: Contract-Waehrung + Exchange-TZ durchgaengig
-- Crash-Recovery: GTC-Stops beim Broker + Startup-Reconciliation
+- Crash-Recovery: GTC-Stops beim Broker + Startup-Reconciliation + Safe-Mode
 - Decision Loop: Single-threaded pro Pipeline, KPI vor Rules
-- DDD-Modulschnitt: Entities gehoeren in ihre Domaenen-Module, odin-persistence = reine Infrastruktur
-- Drain-Mechanismus: Zwei Schreibpfade — direkte Domain-Persistierung + AuditEventDrainer nur fuer EventRecord
-- Library-Regel: Domain-spezifisch (gekapselt) vs. Infrastruktur (cross-cutting)
+- DDD-Modulschnitt: Entities in Domaenen-Modulen, odin-persistence = reine Infrastruktur
+- Drain-Mechanismus: Zwei Schreibpfade — direkte Domain-Persistierung + AuditEventDrainer fuer EventRecord
 - Transaktionsgrenzen: Pro-Pipeline-POJOs nutzen TransactionTemplate statt @Transactional
+- Frontend-Kommunikation: SSE (Monitoring) + REST POST (Controls) — kein WebSocket
 
-### Was als naechstes zu tun ist
+---
 
-**PHASE: Tiefenueberarbeitung aller Kapitel — ABGESCHLOSSEN (2026-02-15)**
+## Naechste Phase (offen)
 
-Alle 11 Kapitel (0→10) wurden linear mit ChatGPT in mehreren Iterationen ueberarbeitet. Jedes Kapitel hat mindestens 2 Review-Runden durchlaufen und GO erhalten. Insgesamt 30 Review-Iterationen ueber alle Kapitel.
-
-**Querschnittsthemen (durchgehend eingearbeitet):**
-- Backtest/Simulation: Tagesweise Replay, BrokerSimulator, MarketClock (Live/Sim), RunContext mit mode-Flag
-- Cross-Kapitel-Konsistenz: instrumentId, Pipeline-States (Kap 6 FSM), OMS-States (Kap 7), brokerOrderId, EventLog non-droppable
-- Lean-Bereinigung: Audit-Chain/HMAC entfernt, WebSocket entfernt, EMERGENCY-Level entfernt, pipelineId eliminiert
-- Neue Konzepte: TradingRun-Outcome (COMPLETED/ABORTED/ERROR), Position-Safety-Invariante, EventLog-Overflow-Semantik
-
-**Cross-Kapitel-Gesamtreview Runde 1 (2026-02-15): ABGESCHLOSSEN — FINAL GO**
-
-Alle 11 Kapitel als Gesamtheit reviewed (merge.txt → ChatGPT). Ergebnis:
-- 1 KRITISCHES Finding (P0): Widerspruch "nicht intraday restartable" vs WinSW Auto-Restart → behoben durch Safe-Mode-Konzept (Kap 0 §10, Kap 8 §6, Kap 10 §4/§5/§6)
-- 0 WICHTIGE Findings die echte Cross-Kapitel-Widersprueche waren
-- Abgelehnte Vorschlaege: DecisionCycleId (Over-Engineering), Risk/LLM Budget Fairness (Implementierungsdetail)
-- 5 Konsistenz-Nacharbeiten im Safe-Mode-Fix: ERROR-Semantik bei Mehrfach-Restart, Startup-Sequenz-Reihenfolge, State-Recovery-Filter, DAY_STOPPED-Semantik-Trennung, Runbook-Ergaenzung
-- ChatGPT: FINAL GO
-
-**Cross-Kapitel-Gesamtreview Runde 2 (2026-02-15): ABGESCHLOSSEN — FINAL GO**
-
-Erneute Pruefung mit frischen Augen. Ergebnis:
-- 1 Finding P0 (WICHTIG): Spool-Droppability in Kap. 10 pauschal "non-droppable" vs. eventklassenabhaengige Policy in Kap. 2 → Formulierung praezisiert
-- 1 Finding P1 (WICHTIG): Safe-Mode ohne Broker-Verbindung (IB Gateway manueller Login) → DEGRADED Safe-Mode eingefuehrt (Dashboard/Forensik verfuegbar, Reconciliation pending)
-- 1 Finding P2 (HINWEIS): Spool In-Memory Forensik-Limit → bereits in Kap. 2 dokumentiert, kein Fix noetig
-- 5 Mitzug-Stellen in Kap. 8 und 10 konsequent nachgezogen (Reconciliation konditional, Dashboard pending)
-- Abgelehnter Vorschlag: Tick-Queue vs. EventLog-Dropping Einzeiler (ueberfluessig, Kontext klar)
-- ChatGPT: FINAL GO
-
-**DDD-Modulschnitt (2026-02-15): ABGESCHLOSSEN**
-
-odin-persistence aufgeloest → Entities wandern in Domaenen-Module, neues odin-audit Modul, odin-persistence auf reine Infrastruktur reduziert. 10 statt 9 Maven-Module. ChatGPT-Review der geaenderten Kapitel durchlaufen, alle kritischen Findings eingearbeitet.
-
-**Naechste Phase (offen):**
-- Entscheidung: Implementierung starten oder weitere Verfeinerung
-
-**Fortschritt:**
-| Kapitel | Tiefenreview | Status |
-|---------|-------------|--------|
-| 0 — Gesamtuebersicht | FERTIG (v0.7) | 3 Iterationen + Cross-Review + DDD-Modulschnitt, FINAL GO |
-| 1 — Modularchitektur | FERTIG (v0.5) | 3 Iterationen + DDD-Modulschnitt + ChatGPT-Review, GO |
-| 2 — Echtzeit-Datenpipeline | FERTIG (v0.4) | 3 Iterationen, GO |
-| 3 — Broker-Anbindung | FERTIG (v0.3) | 3 Iterationen (REWORK+R2+R3), GO |
-| 4 — KPI-Engine | FERTIG (v0.3) | 3 Iterationen (REWORK+R2+R3), GO |
-| 5 — LLM-Integration | FERTIG (v0.3) | 3 Iterationen (REWORK+R2+R3), GO |
-| 6 — Rules Engine | FERTIG (v0.3) | 2 Iterationen (REWORK+R2), GO |
-| 7 — OMS | FERTIG (v0.3) | 4 Iterationen (REWORK+R2+R3+R4), GO |
-| 8 — Datenmodell | FERTIG (v0.6) | 3 Iterationen + Cross-Review R1+R2 + DDD-Modulschnitt + ChatGPT-Review, FINAL GO |
-| 9 — Frontend | FERTIG (v0.3) | 2 Iterationen (REWORK+R2), GO |
-| 10 — Deployment | FERTIG (v0.6) | 3 Iterationen + Cross-Review R1+R2 + DDD-Modulschnitt, FINAL GO |
-| Guardrail Module Structure | FERTIG (v1.2) | DDD-Modulschnitt |
-| Guardrail Development Process | FERTIG (v1.2) | DDD-Modulschnitt + WebSocket→REST Fix |
-| Guardrail Frontend | FERTIG (v1.0) | Erstversion, Feature-basierte Struktur, TS-Regeln |
-
-### Wichtige Arbeitsanweisung vom Benutzer
-
-- **ChatGPT als Sparring-Partner:** Ebenbuertig, nicht als Autoritaet. Feedback kritisch bewerten
-- **ChatGPT-Nutzung:** STRIKT SEQUENTIELL. Nie parallel. Max 20 Requests pro Kontext, dann neuer Chat
-- **Kapitelweise vorgehen:** Nicht alles auf einmal
-- **Playbook immer aktuell halten**
-- **Lean halten:** Professionell aber nicht over-engineered
-
-### Dateien
-
-| Datei | Status |
-|-------|--------|
-| `intraday-agent-concept.md` | v1.5 (Multi-Instrument eingearbeitet) |
-| `architecture/PLAYBOOK.md` | Aktuell (alle Kapitel FERTIG) |
-| `architecture/00-system-overview.md` | v0.7 FERTIG (Tiefenreview + Cross-Review + DDD-Modulschnitt) |
-| `architecture/01-module-architecture.md` | v0.5 FERTIG (Tiefenreview + DDD-Modulschnitt) |
-| `architecture/02-realtime-pipeline.md` | v0.4 FERTIG (Tiefenreview) |
-| `architecture/03-broker-integration.md` | v0.3 FERTIG (Tiefenreview) |
-| `architecture/04-kpi-engine.md` | v0.3 FERTIG (Tiefenreview) |
-| `architecture/05-llm-integration.md` | v0.3 FERTIG (Tiefenreview) |
-| `architecture/06-rules-engine.md` | v0.3 FERTIG (Tiefenreview) |
-| `architecture/07-oms.md` | v0.3 FERTIG (Tiefenreview) |
-| `architecture/08-data-model.md` | v0.6 FERTIG (Tiefenreview + Cross-Review R1+R2 + DDD-Modulschnitt) |
-| `architecture/09-frontend.md` | v0.3 FERTIG (Tiefenreview) |
-| `architecture/10-deployment.md` | v0.6 FERTIG (Tiefenreview + Cross-Review R1+R2 + DDD-Modulschnitt) |
-| `architecture/guardrail-module-structure.md` | v1.2 FERTIG (ChatGPT R1+R2 GO + DDD-Modulschnitt) |
-| `architecture/guardrail-development-process.md` | v1.2 FERTIG (DDD-Modulschnitt + WebSocket→REST Fix) |
-| `architecture/guardrail-frontend.md` | v1.0 FERTIG (Erstversion) |
-| `architecture/WORKING-STATE.md` | Diese Datei |
-
-### Guardrails (Kurzfassung)
-
-- Java 21, Spring Boot, Maven Multi-Modul
-- IB Gateway + TWS API 10.40
-- ta4j, PostgreSQL, React Frontend
-- Claude Agent SDK (primaer) + OpenAI API (alternativ, kein Runtime-Failover)
-- On-Prem Windows, 2–3 Instrumente parallel, isolierte Pipelines
-- Namespace: `odin.*`, Package: `de.odin.*`
-- ODIN = Orderflow Detection & Inference Node (eigenstaendig, kein MOSES)
+Moegliche naechste Schritte:
+- Integrationstests / End-to-End-Verifikation der REST-APIs
+- Frontend-Entwicklung (React, its-odin-ui)
+- Pre-existing Test-Failures in LlmAnalystOrchestratorTest fixen
+- P2-Requirements umsetzen (AVWAP, Live-Bars, Iterative Optimierung)
+- Applikation starten und manuell verifizieren
