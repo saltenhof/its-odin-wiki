@@ -13,6 +13,7 @@ Ergebnisse des ChatGPT-Sparrings zu generischer Algo-Optimierung und LLM-Integra
 5. [Teil 3: TACTICAL_EXIT und Exhaustion-Detection](#5-teil-3-tactical_exit-und-exhaustion-detection)
 6. [Teil 4: Implementierungs-Roadmap](#6-teil-4-implementierungs-roadmap)
 7. [Appendix: User-Entscheidungen](#7-appendix-user-entscheidungen)
+8. [Relation zum Fachkonzept v1.5](#8-relation-zum-fachkonzept-v15)
 
 ---
 
@@ -286,3 +287,39 @@ Die folgenden Entscheidungen wurden im Rahmen des Sparrings vom User getroffen u
 | P6 Time-of-Day Trail | **Abgelehnt** | Trail ist ein Fallnetz, kein Timing-Tool. Zeitbasierte Trail-Anpassung fuehrt zu Overfitting an historische Intraday-Muster |
 
 > **Leitentscheidung:** "ODIN ist kein reines Algo-Trading. Das LLM muss unterstuetzende Entscheidungsgewalt haben." — Dies begruendet die gesamte Architektur des Tactical Parameter Controllers und die Abkehr von einem rein deterministischen System.
+
+---
+
+## 8. Relation zum Fachkonzept v1.5
+
+Dieser Abschnitt dokumentiert **alle identifizierten Konflikte (K1–K15)** zwischen dem **Fachkonzept v1.5 (FK)** und diesem **Strategie-Dokument**. Die **Status-Spalte** ist normativ und definiert, ob und wie FK v1.5 durch dieses Dokument uebersteuert wird.
+
+| ID | Thema | Fachkonzept v1.5 | Strategie-Dokument | Status | Anmerkung |
+|----|-------|-------------------|---------------------|--------|-----------|
+| K1 | LLM-Einfluss auf Stop-/Trail-Parameter | LLM hat **keinen Einfluss** auf Stop-Level; Stop-Logik ist Rules/ATR-dominiert (Kap. 2, 7). | LLM wird als **Tactical Parameter Controller** konzipiert und liefert gebundene Parameter (z.B. `trail_mode`) (Kap. 4). | Ersetzt FK | **Paradigmenwechsel (bindende Leitentscheidung):** LLM darf Parameter liefern, aber **nur gebunden (Enums/Profiles)**; Rules/Resolver uebersetzen deterministisch und clampen. LLM kann keine numerischen Stop-Level vorschlagen oder direkt setzen. |
+| K2 | LLM-Criticality: Trailing LLM-unabhaengig vs. `trail_mode` | Trailing-Stop-Anpassung ist als **LLM-unabhaengig** klassifiziert (FK Kap. 9, LLM-Criticality). | `trail_mode` wirkt als Multiplikator und wird in Konfliktaufloesung/Precedence einbezogen (Kap. 4.5). | Ersetzt FK | FK-Criticality muss aktualisiert werden: **Hard-Exit bleibt LLM-unabhaengig**, aber Trail-**Weite** kann (gebunden) LLM-beeinflusst sein. Bei LLM-Ausfall: Fallback `trail_mode=NORMAL`. |
+| K3 | Trailing-Stop-Definition | Einstufig: **1x ATR vom Intraday-High** (FK Kap. 7, Exit-Regeln). | Mehrstufig: **R-basierte Profit-Protection** + Regime-Anpassung + MFE-Lock (Kap. 3.1). | Ersetzt FK | FK-Exit-Regel "Trailing-Stop" wird durch **Profit-Protection v2** ersetzt (P0, teilweise implementiert). |
+| K4 | Trailing-Aktivierungsschwelle | Trailing als generischer Exit-Mechanismus ohne R-Schwelle (FK Kap. 7). | **Trail verboten vor 1.5R**, danach aktiv (wide → tighter) (Kap. 3.1, 4.6). | Ersetzt FK | Teil von P0: verhindert zu fruehes Ausstoppen in der Fruehphase eines Trades. |
+| K5 | Break-even nach 1R | Nach 1R: Stop auf **Break-even (Entry)** (FK Kap. 7, Scaling-Out). | Nach 1R: Stop >= **Entry + 0.10R** (Fees/Slippage-Puffer) (Kap. 3.1). | Ersetzt FK | FK-Begriff "Break-even" wird als **Entry + fee_buffer_R** praezisiert (Default 0.10R, konfigurierbar). |
+| K6 | Stop-Resolver / Monotonie | Keine formale Definition, wie Stop-Kandidaten zusammengefuehrt werden (FK Kap. 7). | Formal: `effectiveStop = max(prevStop, stop0, trailCandidate, mfeLockStop)`; Stop **kann nur steigen** (Kap. 3.1). | Ersetzt FK | Normative Resolver-Regel: Highwater-Mark-Invariante. Audit-Log der Kandidaten empfohlen. |
+| K7 | Runner-Trailing: Struktur (EMA/HL) vs. Profit-Protection | Runner-Trail unter EMA(9) oder letztem Higher-Low; Tightening bei RSI > 80 (FK Kap. 7). | Runner-Mechanik nicht explizit adressiert; Fokus auf R/MFE-Profit-Protection (Kap. 3.1). | Klaerungsbedarf | **Entscheidung erforderlich:** Struktur-Trail als zusaetzlicher Stop-Kandidat in `max()` beibehalten, oder zugunsten eines einheitlichen R/MFE-basierten Exit-Systems entfernen. Empfehlung: Beibehalten als zusaetzlicher Kandidat — Struktur kann frueher schliessen als Profit-Protection, aber nie unter dem Floor. |
+| K8 | "Urgency erzwingt keinen Exit" vs. TACTICAL_EXIT | Urgency CRITICAL fuehrt zu Re-Evaluation, aber **Urgency allein loest keinen Exit aus** (FK Kap. 7). | `exit_bias` aktiviert **TACTICAL_EXIT** — Exit nur bei KPI-Bestaetigung (Kap. 5.1). | Geplant | Umsetzung in P1. Eiserne Regel bleibt: **LLM allein erzwingt keinen Exit**. TACTICAL_EXIT erfordert mindestens ein bestaetigendes KPI-Signal. FK muss um dieses Konzept erweitert werden, sobald implementiert. |
+| K9 | Precedence-Kette / Konfliktaufloesung | Keine formale Rangfolge zwischen Exit-Quellen beschrieben (FK Kap. 7, 9). | Precedence-Kette: Hard-Exits > Profit-Protection > LLM-Parameter > Soft-Exits. Konfliktregel: `effectiveTrailFactor = min(...)` (Kap. 4.5). | Geplant | Umsetzung in P1. Zentrale Konfliktregel, die ins FK uebernommen werden muss, sobald implementiert. |
+| K10 | Subregimes: Autoritaet KPI vs. LLM | Regime-Analyse stark LLM-getrieben; Quant validiert (FK Kap. 2, 13). | Subregime-Resolver: **KPI primaer**, LLM sekundaer; bei Widerspruch konservatives Subregime (Kap. 4.7). | Geplant | Umsetzung in P2. FK muss zwischen Regime (LLM-gefuehrt) und Subregime (KPI-gefuehrt) trennen. Das Fuenf-Stufen-Regime-Modell des FK bleibt als Oberkategorie erhalten. |
+| K11 | ADX als Entry-Filter | Entry-Regeln ohne ADX-Filter: EMA(9) > EMA(21), RSI < 70 (FK Kap. 7). | Vorschlag: ADX > 20–25 als Trend-Qualitaetsfilter (Kap. 3.3). | Geplant | Backtest/Plateau-Test erforderlich bevor Aktivierung. Danach FK-Entry-Guards erweitern. |
+| K12 | `target_policy = TRAIL_ONLY` vs. Tranchierung | Scaling-Out in Tranchen (3–5) ist Kernmechanik der Gewinnmitnahme (FK Kap. 7). | Option: `TRAIL_ONLY` — Targets ignorieren, Trail dominiert (Kap. 4.2). | Klaerungsbedarf | **Inkompatibel** mit bestehender OMS-Tranchierungslogik ohne Anpassung. Empfehlung: `TRAIL_ONLY` hoechstens fuer Runner-Anteil zulassen oder erst nach OMS-Anpassung freigeben. |
+| K13 | `scale_out_profile` (LLM steuert Teilverkaeufe) | Scaling-Out ist Rules-dominiert, LLM-unabhaengig (FK Kap. 9, LLM-Criticality). | Geplant: `scale_out_profile` zur OMS-Steuerung durch LLM-Profil (Kap. 4.4). | Geplant | Umsetzung in P3. Wenn umgesetzt: **nur Profilwahl** (OFF/CONSERVATIVE/STANDARD/AGGRESSIVE), keine freien Groessen/Preise. Rules bleiben deterministisch, LLM waehlt Profil. |
+| K14 | Anti-LLM-Drift Guardrails | Keine Drift-Guardrails beschrieben (ueber Timeout/Retry hinaus) (FK Kap. 9, 11). | Guardrails: R-Mindestweiten, Mode-Hysterese, Monitoring-Reset auf NORMAL (Kap. 4.6). | Geplant | Umsetzung in P2. Muss als Betriebssicherheits-Mechanik ins FK aufgenommen werden. |
+| K15 | ATR einfrieren (Faktor 2.2) | ATR-Nutzung breit beschrieben, aber ohne Freeze-Semantik (FK Kap. 7, 8, 10). | ATR-Freeze mit Faktor 2.2 als beschlossen und implementiert (Kap. 6, P0). | Ersetzt FK | FK muss exakt definieren: **welche ATR** (Entry-ATR auf 5-Min), **wann Freeze** (bei Entry), **wo Faktor wirkt** (Stop0-Berechnung, R-Normalisierung, Trail-Basis). |
+
+---
+
+### Vorrangregel (Konfliktaufloesung)
+
+1. **Diese Tabelle ist die Quelle der Wahrheit fuer Abweichungen** zwischen FK v1.5 und diesem Strategie-Dokument.
+2. **Status-Auswertung ist verbindlich:**
+    - **Ersetzt FK:** Die hier beschriebene Regel/Architektur **uebersteuert** FK v1.5. Das Fachkonzept gilt an dieser Stelle als veraltet und muss bei naechster Revision aktualisiert werden.
+    - **Ergaenzt FK:** FK v1.5 bleibt gueltig; dieses Dokument **ergaenzt** ohne Widerspruch (zusaetzliche Normen/Definitionen).
+    - **Geplant:** Noch nicht umgesetzt; **FK v1.5 gilt operativ weiter**, bis die Umsetzung erfolgt und der Status aktualisiert wird.
+    - **Klaerungsbedarf:** Widerspruch ist **nicht entschieden**; **FK v1.5 gilt operativ weiter**, bis eine Entscheidung dokumentiert und der Status geaendert ist.
+3. **Implementierungs-/Entscheidungs-Updates:** Jeder Wechsel von "Geplant/Klaerungsbedarf" zu "Ersetzt/Ergaenzt" muss in dieser Tabelle nachvollziehbar aktualisiert werden (inkl. Commit-/Ticket-Verweis in der Spalte "Anmerkung").
