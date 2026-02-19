@@ -1,8 +1,8 @@
 # ODIN — Chart-Komponente: Architekturkonzept
 
-Version: 1.0 DRAFT
+Version: 1.1
 Stand: 2026-02-19
-Review: ChatGPT-Review R1 (10 Findings) + R2 (5 Findings) eingearbeitet
+Review: ChatGPT-Review R1 (10 Findings) + R2 (5 Findings) eingearbeitet + Integritaets-Harmonisierung mit Frontend-Architekturkonzept (Token-System, State-Strategie, SSE-Client, Domain-Struktur)
 
 ---
 
@@ -249,20 +249,22 @@ type LayerId =
 ### Composite-Layer-Beispiel: Bollinger Bands
 
 ```typescript
-function createBollingerLayer(chart: IChartApi): LayerInstance {
+function createBollingerLayer(chart: IChartApi, tokens: ChartTokens): LayerInstance {
+  const bollingerColor: string = tokens.bollinger;
+
   const upperSeries: ISeriesApi<'Line'> = chart.addLineSeries({
-    color: 'var(--color-kpi-bb)',
+    color: bollingerColor,
     lineStyle: LineStyle.Dashed,
     lineWidth: 1,
     priceScaleId: 'right',
   });
   const midSeries: ISeriesApi<'Line'> = chart.addLineSeries({
-    color: 'var(--color-kpi-bb)',
+    color: bollingerColor,
     lineWidth: 1,
     priceScaleId: 'right',
   });
   const lowerSeries: ISeriesApi<'Line'> = chart.addLineSeries({
-    color: 'var(--color-kpi-bb)',
+    color: bollingerColor,
     lineStyle: LineStyle.Dashed,
     lineWidth: 1,
     priceScaleId: 'right',
@@ -335,18 +337,18 @@ function createPositionShadingLayer(chart: IChartApi, priceSeries: ISeriesApi<'C
 |----------|-------|------------|-------|-----------------|
 | `candlestick` | price | 1 Candlestick-Serie | Gruen/Rot | Immer |
 | `volume` | price | 1 Histogram-Serie | Gruen/Rot (transparent) | Immer |
-| `vwap` | price | 1 Line-Serie | `--color-kpi-vwap` (Cyan) | Ja |
-| `ema9` | price | 1 Line-Serie | `--color-kpi-ema9` (Gelb) | Ja |
-| `ema21` | price | 1 Line-Serie | `--color-kpi-ema21` (Orange) | Ja |
-| `ema50` | price | 1 Line-Serie | `--color-kpi-ema50` (Blau) | Nein |
-| `ema100` | price | 1 Line-Serie | `--color-kpi-ema100` (Violett) | Nein |
-| `bollinger` | price | 3 Line-Serien (Upper/Mid/Lower) | `--color-kpi-bb` (Grau) | Nein |
-| `rsi14` | oscillator | 1 Line-Serie + 2 PriceLines (30/70) | `--color-kpi-rsi` (Violett) | Ja |
-| `adx14` | oscillator | 1 Line-Serie | `--color-kpi-adx` (Rot) | Ja |
-| `atr14` | volatility | 1 Line-Serie | `--color-kpi-atr` (Tuerkis) | Ja |
-| `atr-decay` | volatility | 1 Line-Serie | `--color-kpi-atr-decay` (Orange) | Nein |
-| `volume-ratio` | volatility | 1 Line-Serie | `--color-kpi-vol-ratio` (Weiss) | Nein |
-| `accum-dist` | flow | 1 Line-Serie (linke Skala) | `--color-kpi-accum-dist` (Gelb) | Nein |
+| `vwap` | price | 1 Line-Serie | `--color-chart-vwap` | Ja |
+| `ema9` | price | 1 Line-Serie | `--color-chart-ema9` | Ja |
+| `ema21` | price | 1 Line-Serie | `--color-chart-ema21` | Ja |
+| `ema50` | price | 1 Line-Serie | `--color-chart-ema50` | Nein |
+| `ema100` | price | 1 Line-Serie | `--color-chart-ema100` | Nein |
+| `bollinger` | price | 3 Line-Serien (Upper/Mid/Lower) | `--color-chart-bollinger` | Nein |
+| `rsi14` | oscillator | 1 Line-Serie + 2 PriceLines (30/70) | `--color-chart-rsi` | Ja |
+| `adx14` | oscillator | 1 Line-Serie | `--color-chart-adx` | Ja |
+| `atr14` | volatility | 1 Line-Serie | `--color-chart-atr` | Ja |
+| `atr-decay` | volatility | 1 Line-Serie | `--color-chart-atr-decay` | Nein |
+| `volume-ratio` | volatility | 1 Line-Serie | `--color-chart-vol-ratio` | Nein |
+| `accum-dist` | flow | 1 Line-Serie (linke Skala) | `--color-chart-accum-dist` | Nein |
 
 ### Layer Toggle UI
 
@@ -418,10 +420,10 @@ Trading-Events werden als **Candle-Marker auf Preislevel** dargestellt — mit e
 
 | Event-Typ | Marker-Stil | Farbe | Hover-Annotation |
 |-----------|-------------|-------|-----------------|
-| Entry (Kauf) | Aufwaerts-Pfeil, gross | Gruen (`--color-event-entry`) | "BUY @{price}" + Stueckzahl + Regime + Score |
-| Partial Exit | Abwaerts-Pfeil, klein | Gelb (`--color-event-partial`) | "SELL {qty} @{price} ({percent}%)" + Tranche |
-| Full Exit | Abwaerts-Pfeil, gross | Rot (`--color-event-exit`) | "EXIT @{price}" + P&L + Grund |
-| Stop-Trigger | X-Marker | Rot (`--color-event-stop`) | "STOP @{price}" + P&L |
+| Entry (Kauf) | Aufwaerts-Pfeil, gross | Gruen (`--color-chart-entry-marker`) | "BUY @{price}" + Stueckzahl + Regime + Score |
+| Partial Exit | Abwaerts-Pfeil, klein | Gelb (`--color-chart-partial-marker`) | "SELL {qty} @{price} ({percent}%)" + Tranche |
+| Full Exit | Abwaerts-Pfeil, gross | Rot (`--color-chart-exit-marker`) | "EXIT @{price}" + P&L + Grund |
+| Stop-Trigger | X-Marker | Rot (`--color-chart-stop-level`) | "STOP @{price}" + P&L |
 
 ### Detail-Popup bei Klick
 
@@ -435,13 +437,13 @@ Ein Klick auf einen Marker oeffnet ein **Detail-Popup** mit allen Informationen:
 
 Waehrend einer offenen Position wird der Hintergrund des Preis-Charts leicht eingefaerbt (via Custom Primitive):
 
-- **Profitable Position:** Gruener Hintergrund (sehr dezent, ~5% Opazitaet)
-- **Verlustposition:** Roter Hintergrund (sehr dezent, ~5% Opazitaet)
+- **Profitable Position:** `--color-chart-position-profit` (sehr dezent, ~5% Opazitaet)
+- **Verlustposition:** `--color-chart-position-loss` (sehr dezent, ~5% Opazitaet)
 - **Bereich:** Von Entry-Zeitpunkt bis Exit-Zeitpunkt (oder bis zum aktuellen Zeitpunkt bei offener Position im Live-Modus)
 
 ### Stop-Level-Linie
 
-Im Live-Modus und bei offener Position wird das aktuelle Stop-Level als **horizontale gestrichelte Linie** im Preis-Panel angezeigt (via `createPriceLine()`). Die Linie bewegt sich mit, wenn der Trailing-Stop nachgezogen wird.
+Im Live-Modus und bei offener Position wird das aktuelle Stop-Level als **horizontale gestrichelte Linie** (`--color-chart-stop-level`) im Preis-Panel angezeigt (via `createPriceLine()`). Die Linie bewegt sich mit, wenn der Trailing-Stop nachgezogen wird.
 
 ### Datenquelle fuer Events
 
@@ -533,23 +535,34 @@ REST: /runs/{runId}/decisions ┤                SSE: trade-update ────�
                                │                SSE: order-update ─────┤
                                v                                       v
                     ┌──────────────────┐              ┌──────────────────┐
-                    │   ChartDataStore  │              │   ChartDataStore  │
-                    │ (React State/Ref) │              │ (React State/Ref) │
+                    │  Chart-interner   │              │  Zustand Store   │
+                    │  State (Refs)     │              │  (Global Slice)  │
                     │                  │              │                  │
-                    │ bars: OhlcvBar[] │              │ bars: OhlcvBar[] │
-                    │ indicators: ...  │              │ indicators: ...  │
-                    │ trades: ...      │              │ trades: ...      │
+                    │ bars: OhlcvBar[] │              │ PipelineSnapshot │
+                    │ indicators: ...  │              │ + Bar-Daten      │
+                    │ trades: ...      │              │                  │
                     └────────┬─────────┘              └────────┬─────────┘
                              │                                  │
-                             v                                  v
-                    ┌──────────────────────────────────────────────────┐
-                    │            IntraDayChart Component                │
-                    │                                                  │
+                             v                            store.subscribe()
+                    ┌──────────────────┐              (kein React Re-Render)
+                    │   Imperative      │                        │
+                    │   Chart API       │ <──────────────────────┘
+                    │                  │
                     │  useChart() → IChartApi                          │
                     │  Layer Registry → LayerInstance[]                 │
                     │  PanelSyncController → Time Scale Coordination   │
                     └──────────────────────────────────────────────────┘
 ```
+
+### State-Strategie: Imperativ statt Reaktiv
+
+Die Chart-Komponente verwendet eine **imperative Update-Strategie** anstelle von React-Re-Renders:
+
+- **History-Modus:** REST-Daten werden per `useEffect` geladen und via `series.setData()` direkt in die Chart-Instanz geschrieben. Die Daten werden als React Refs gehalten, nicht als State (kein Re-Render noetig).
+- **Live-Modus:** SSE-Daten fliessen ueber den zentralen SSE-Client (Frontend-Architekturkonzept §4.5) in den Zustand Global Store. Die Chart-Komponente nutzt `store.subscribe()` (nicht `useStore(selector)`), um Aenderungen zu beobachten und `series.update()` imperativ aufzurufen — ohne React-Render-Zyklus.
+- **UI-State** (Layer-Toggles, Visible Range, AutoScroll) bleibt als lokaler React State in der Chart-Komponente.
+
+**Begruendung:** TradingView Lightweight Charts arbeitet mit einer imperativen API (`update()`, `setData()`, `applyOptions()`). Ein reaktiver Ansatz (Store → Selector → Re-Render → useEffect → imperativer Aufruf) wuerde bei 1-Sekunden-SSE-Updates unnoetige React-Zyklen erzeugen. `store.subscribe()` bietet eine Bruecke: Die SSE-Daten-Invariante des Architekturkonzepts (Daten fliessen ueber den Store) wird eingehalten, aber der Chart-Update-Pfad umgeht den React-Render-Zyklus.
 
 ---
 
@@ -711,7 +724,8 @@ Die letzte Kerze wird aktualisiert (High, Low, Close, Volume koennen sich aender
 function handleSnapshotUpdate(
   candlestickSeries: ISeriesApi<'Candlestick'>,
   volumeSeries: ISeriesApi<'Histogram'>,
-  snapshot: MarketSnapshot
+  snapshot: MarketSnapshot,
+  tokens: ChartTokens
 ): void {
   candlestickSeries.update({
     time: snapshot.barOpenTime as UTCTimestamp,
@@ -725,8 +739,8 @@ function handleSnapshotUpdate(
     time: snapshot.barOpenTime as UTCTimestamp,
     value: snapshot.barVolume,
     color: snapshot.lastPrice >= snapshot.barOpen
-      ? 'var(--color-candle-up)'
-      : 'var(--color-candle-down)',
+      ? tokens.candleUp
+      : tokens.candleDown,
   });
 }
 ```
@@ -738,7 +752,8 @@ Wenn `snapshot.barOpenTime` groesser ist als die letzte bekannte Bar-Zeit, wird 
 function handleNewBar(
   candlestickSeries: ISeriesApi<'Candlestick'>,
   volumeSeries: ISeriesApi<'Histogram'>,
-  snapshot: MarketSnapshot
+  snapshot: MarketSnapshot,
+  tokens: ChartTokens
 ): void {
   // Vorherige Bar ist jetzt final — kein weiteres Update
   // Neue Bar starten mit Backend-geliefertem barOpen
@@ -755,8 +770,8 @@ function handleNewBar(
     time: snapshot.barOpenTime as UTCTimestamp,
     value: snapshot.barVolume,
     color: snapshot.lastPrice >= snapshot.barOpen
-      ? 'var(--color-candle-up)'
-      : 'var(--color-candle-down)',
+      ? tokens.candleUp
+      : tokens.candleDown,
   });
 }
 ```
@@ -950,7 +965,7 @@ Der Timeframe-Wechsel folgt dem Handover-Protokoll (§9), mit einer **Overlap-St
 
 1. **Status: SWITCHING** — Chart zeigt "Loading"-Indikator
 2. **Neuen SSE-Stream oeffnen** mit neuem Timeframe-Parameter (§7) — Events werden sofort in einen Buffer geschrieben
-3. **Alten SSE-Stream schliessen** (EventSource.close()) — erst nachdem der neue Stream connected ist (EventSource.readyState === OPEN). Dadurch entsteht ein kurzer Overlap, in dem beide Streams aktiv sind
+3. **Alten SSE-Stream schliessen** (via AbortController des fetch-basierten SSE-Clients, siehe Frontend-Architekturkonzept §4.5) — erst nachdem der neue Stream connected ist (erstes Event empfangen = "connected"-Signal). Dadurch entsteht ein kurzer Overlap, in dem beide Streams aktiv sind
 4. **REST-Calls parallel ausfuehren** (Bars + Indicators im neuen Interval). REST-Responses enthalten `asOfEventId` fuer den **neuen** SSE-Stream
 5. **Alle Series leeren und mit REST-Daten neu befuellen**
 6. **Gepufferten Buffer abarbeiten** — nach Source-Tag und Event-Typ getrennt:
@@ -1002,9 +1017,9 @@ Aehnlich wie im IB-Referenz-Screenshot werden verschiedene Session-Phasen durch 
 
 | Session-Phase | Zeitfenster (NYSE-Beispiel) | Hintergrund |
 |---------------|---------------------------|-------------|
-| Pre-Market | 04:00 - 09:30 ET | Dunkelbraun, 10% Opazitaet |
-| Regular Trading Hours (RTH) | 09:30 - 16:00 ET | Kein Shading (Standard-Hintergrund) |
-| After-Hours | 16:00 - 20:00 ET | Dunkelblau, 10% Opazitaet |
+| Pre-Market | 04:00 - 09:30 ET | `--color-chart-session-pre` (10% Opazitaet) |
+| Regular Trading Hours (RTH) | 09:30 - 16:00 ET | Kein Shading (Standard-Hintergrund `--color-bg-surface`) |
+| After-Hours | 16:00 - 20:00 ET | `--color-chart-session-after` (10% Opazitaet) |
 
 Die Session-Zeiten werden vom Backend als Konfiguration geliefert (abhaengig vom Exchange-Kalender, Kap 0 §3.2). Das Frontend rendert die Zonen als halbtransparente Rechtecke im Hintergrund aller Panels.
 
@@ -1014,9 +1029,9 @@ Die Session-Zeiten werden vom Backend als Konfiguration geliefert (abhaengig vom
 
 ## 13. Integration in Domain-Kontexte
 
-### Backtest-Feature (`src/features/history/`)
+### Backtest-Feature (`src/domains/backtesting/features/backtest-results/`)
 
-Die Chart-Komponente wird im History-Feature eingebettet, umgeben von zusaetzlichen Kontextinformationen:
+Die Chart-Komponente wird im Backtest-Results-Feature eingebettet, umgeben von zusaetzlichen Kontextinformationen:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -1034,7 +1049,7 @@ Die Chart-Komponente wird im History-Feature eingebettet, umgeben von zusaetzlic
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Pipeline-Feature (`src/features/pipeline/`)
+### Pipeline-Feature (`src/domains/trading-operations/features/chart-view/`)
 
 Im Live-Dashboard ist der Chart neben dem Pipeline-Status-Panel positioniert:
 
@@ -1054,7 +1069,7 @@ Im Live-Dashboard ist der Chart neben dem Pipeline-Status-Panel positioniert:
 
 ### Komponentenort: `src/shared/components/IntraDayChart/`
 
-Die Chart-Komponente ist ein **genuiner Shared-Baustein**, keine Feature-spezifische Logik. Sie gehoert nach `src/shared/components/IntraDayChart/` und ist damit von allen Features importierbar, ohne die Feature-Isolationsregel zu verletzen (Frontend-Guardrail §2).
+Die Chart-Komponente ist ein **genuiner Shared-Baustein**, keine domaenen-spezifische Logik. Sie gehoert nach `src/shared/components/IntraDayChart/` und ist damit von allen Domaenen importierbar, ohne die Domain-Isolationsregel zu verletzen (Frontend-Architekturkonzept §3.4: Domain → Shared erlaubt, Shared → Domain verboten).
 
 > **Barrel-Export-Klarstellung:** Der Frontend-Guardrail §2 erlaubt Barrel-Exports auf Feature-Ebene. Fuer `shared/components/` wird diese Konvention analog angewandt: Ein einzelnes `index.ts` in `shared/components/IntraDayChart/` exportiert die Public API. Sub-Ordner (hooks/, layers/, panels/) haben **keine eigenen Barrel-Exports** — alle Imports innerhalb der Komponente sind relative Imports. Nur der Top-Level `index.ts` ist der oeffentliche Entry-Point.
 
@@ -1094,53 +1109,72 @@ Diese Datenmengen sind fuer Lightweight Charts trivial — die Library ist fuer 
 
 ---
 
-## 16. Farb-Schema und Design Tokens
+## 16. Farb-Schema und Design-Token-Integration
 
-Alle Chart-Farben werden ueber CSS Custom Properties definiert (Frontend-Guardrail §8). Dark Theme ist das einzige Theme.
+Alle Chart-Farben werden ausschliesslich ueber **Semantic Design Tokens** des zentralen Design Systems referenziert (Frontend-Architekturkonzept §2). Die Chart-Komponente definiert **keine eigenen Farbwerte** — sie konsumiert die im Design System definierten `--color-chart-*` Tokens. Theme-Switching (Dark/Light) wird automatisch ueber die Token-Architektur unterstuetzt.
 
-```css
-/* Chart-spezifische Design Tokens */
-:root {
-  /* Candlestick */
-  --color-candle-up: #26a69a;        /* Gruen */
-  --color-candle-down: #ef5350;      /* Rot */
-  --color-candle-wick: #787b86;      /* Grau */
+### Token-Referenz (vollstaendige Liste)
 
-  /* KPI-Overlays */
-  --color-kpi-vwap: #00bcd4;         /* Cyan */
-  --color-kpi-ema9: #ffeb3b;         /* Gelb */
-  --color-kpi-ema21: #ff9800;        /* Orange */
-  --color-kpi-ema50: #2196f3;        /* Blau */
-  --color-kpi-ema100: #9c27b0;       /* Violett */
-  --color-kpi-bb: #9e9e9e;           /* Grau */
-  --color-kpi-rsi: #ce93d8;          /* Helles Violett */
-  --color-kpi-adx: #ff7043;          /* Rot-Orange */
-  --color-kpi-atr: #4dd0e1;          /* Tuerkis */
-  --color-kpi-atr-decay: #ffb74d;    /* Helles Orange */
-  --color-kpi-vol-ratio: #e0e0e0;    /* Helles Grau */
-  --color-kpi-accum-dist: #fdd835;   /* Gelb */
+Die folgenden Semantic Tokens werden von der Chart-Komponente verwendet. Sie sind im Design System unter `tokens/theme-dark.css` und `tokens/theme-light.css` definiert (Frontend-Architekturkonzept §2.2):
 
-  /* Trading Events */
-  --color-event-entry: #4caf50;       /* Gruen */
-  --color-event-partial: #ffc107;     /* Gelb */
-  --color-event-exit: #f44336;        /* Rot */
-  --color-event-stop: #ff1744;        /* Intensives Rot */
+| Kategorie | Token | Verwendung |
+|-----------|-------|-----------|
+| **Candlestick** | `--color-chart-candle-up` | Bullische Kerzen (Body + Docht) |
+| | `--color-chart-candle-down` | Baerische Kerzen (Body + Docht) |
+| **Infrastruktur** | `--color-chart-volume` | Volumen-Balken |
+| | `--color-chart-grid` | Grid-Linien |
+| | `--color-chart-crosshair` | Crosshair-Linie |
+| | `--color-bg-surface` | Chart-Hintergrund (kein separater Chart-BG-Token noetig) |
+| | `--color-text-primary` | Achsenbeschriftung |
+| **KPI-Overlays** | `--color-chart-vwap` | VWAP-Linie |
+| | `--color-chart-ema9` | EMA(9)-Linie |
+| | `--color-chart-ema21` | EMA(21)-Linie |
+| | `--color-chart-ema50` | EMA(50)-Linie |
+| | `--color-chart-ema100` | EMA(100)-Linie |
+| | `--color-chart-bollinger` | Bollinger Bands (Upper/Mid/Lower) |
+| | `--color-chart-rsi` | RSI(14)-Linie |
+| | `--color-chart-adx` | ADX(14)-Linie |
+| | `--color-chart-atr` | ATR(14)-Linie |
+| | `--color-chart-atr-decay` | ATR-Decay-Linie |
+| | `--color-chart-vol-ratio` | Volume-Ratio-Linie |
+| | `--color-chart-accum-dist` | Accumulation/Distribution-Linie |
+| **Trading Events** | `--color-chart-entry-marker` | Entry-Marker (Kauf) |
+| | `--color-chart-partial-marker` | Partial-Exit-Marker |
+| | `--color-chart-exit-marker` | Exit-Marker (Verkauf) |
+| | `--color-chart-stop-level` | Stop-Level-Linie und Stop-Trigger-Marker |
+| | `--color-chart-decision-dot` | Decision-Log-Punkt |
+| **Shading** | `--color-chart-session-pre` | Pre-Market Hintergrund-Shading |
+| | `--color-chart-session-after` | After-Hours Hintergrund-Shading |
+| | `--color-chart-position-profit` | Positions-Shading (Gewinn, ~5% Opazitaet) |
+| | `--color-chart-position-loss` | Positions-Shading (Verlust, ~5% Opazitaet) |
+| **Multi-Series** | `--color-chart-series-1..6` | Fuer Multi-Series-Vergleiche (z.B. Equity Curves) |
 
-  /* Session-Shading */
-  --color-session-pre: rgba(121, 85, 72, 0.10);
-  --color-session-after: rgba(33, 150, 243, 0.10);
+### JS-Token-Bridge
 
-  /* Position-Shading */
-  --color-position-profit: rgba(76, 175, 80, 0.05);
-  --color-position-loss: rgba(244, 67, 54, 0.05);
+TradingView Lightweight Charts akzeptiert **keine CSS Custom Properties** (`var(--token)`) direkt — die Library erwartet aufgeloeste Farbstrings (z.B. `#4ade80`). Die Bruecke zwischen Token-System und Chart-Konfiguration erfolgt ueber `resolveChartTokens()` (Frontend-Architekturkonzept §2.6):
 
-  /* Chart-Hintergrund */
-  --color-chart-bg: #1e1e2e;
-  --color-chart-grid: rgba(255, 255, 255, 0.06);
-  --color-chart-text: #d4d4d4;
-  --color-chart-crosshair: rgba(255, 255, 255, 0.3);
-}
+```typescript
+// Token-Aufloesungu bei Chart-Initialisierung und Theme-Wechsel
+const tokens: ChartTokens = resolveChartTokens();
+
+// Verwendung in Layer-Factories und Update-Funktionen
+candlestickSeries.applyOptions({
+  upColor: tokens.candleUp,
+  downColor: tokens.candleDown,
+  wickUpColor: tokens.candleUp,
+  wickDownColor: tokens.candleDown,
+});
 ```
+
+### Theme-Change-Handling
+
+Bei Theme-Wechsel publiziert der `useTheme`-Hook ein `global:theme-changed`-Event ueber den Event-Bus (Frontend-Architekturkonzept §4.4). Die Chart-Komponente reagiert darauf:
+
+1. `resolveChartTokens()` erneut aufrufen (neue Farbwerte aus geaendertem `[data-theme]`)
+2. Alle Chart-Instanzen mit `applyOptions()` aktualisieren
+3. Alle Serien mit den neuen Farben rekonfigurieren
+
+> **Hinweis:** Dark Theme ist das primaere und verpflichtende Theme. Light Theme ist optional (Frontend-Architekturkonzept §1.4). Die Token-Architektur stellt sicher, dass Theme-Switching ohne Code-Aenderungen in der Chart-Komponente funktioniert.
 
 ---
 
@@ -1210,9 +1244,10 @@ src/
 | REST+SSE Handover | eventId-basierte Deduplizierung + asOfEventId-Korrelation | Kein Datenverlust, keine Duplikate beim Uebergang |
 | Timeframe-Wechsel | State Machine (IDLE/SWITCHING/ERROR) mit SSE-Buffering | Verhindert Race Conditions bei Live+Timeframe-Switch |
 | Props-API | Discriminated Union (mode: 'live' / 'history'), typ-sichere LayerId | Compiletime-Sicherheit, Frontend-Guardrail §4 |
-| Komponentenort | `src/shared/components/IntraDayChart/` | Genuiner Shared-Baustein, keine Feature-spezifische Logik |
-| Barrel-Export | Nur auf Komponenten-Top-Level, keine Sub-Ordner-Barrels | Konsistent mit Frontend-Guardrail §2 |
-| Farben | CSS Custom Properties (Design Tokens) | Konsistent mit Dark Theme, einfach aenderbar |
+| Komponentenort | `src/shared/components/IntraDayChart/` | Genuiner Shared-Baustein, keine domaenen-spezifische Logik. Domain → Shared erlaubt (Frontend-Architekturkonzept §3.4) |
+| Barrel-Export | Nur auf Komponenten-Top-Level, keine Sub-Ordner-Barrels | Konsistent mit Frontend-Guardrail §2, Frontend-Architekturkonzept §3.2 |
+| Farben | Semantic Design Tokens (`--color-chart-*`) via JS-Token-Bridge | Zentrales Design System (Frontend-Architekturkonzept §2). Theme-kompatibel, keine Hardcoded Hex-Werte |
+| State-Strategie | `store.subscribe()` + imperativ, kein React-Re-Render | SSE-Daten-Invariante eingehalten, aber performant fuer 1s-Updates auf imperative Chart-API |
 
 ---
 
@@ -1232,6 +1267,7 @@ Die folgenden Punkte erfordern Backend-Aenderungen oder -Erweiterungen:
 
 ## Referenzen
 
+- [Frontend-Architekturkonzept](frontend-architecture-concept.md): Design System (§2, insb. §2.6 JS-Token-Bridge), Domain-Driven Modulstruktur (§3), State Management mit Zustand (§4), SSE-Client (§4.5), Event-Bus (§4.4)
 - [Kap 0 — Systemuebersicht](../../architecture/00-system-overview.md): Ports, Modi, MarketClock
 - [Kap 9 — React-Frontend](09-frontend.md): SSE-Events, REST-Endpoints, Chart-Ansicht-Definition
 - [Frontend-Guardrail](../guardrails/frontend.md): Projektstruktur, TypeScript-Regeln, Styling

@@ -269,23 +269,43 @@ Semantic Tokens weisen den Primitives eine **Bedeutung** zu. Sie wechseln je nac
   --color-alert-warning:   var(--p-yellow-400);
   --color-alert-critical:  var(--p-red-400);
 
-  /* --- Chart-spezifische Farben --- */
-  --color-chart-candle-up:    var(--p-green-400);
-  --color-chart-candle-down:  var(--p-red-400);
-  --color-chart-volume:       var(--p-gray-600);
-  --color-chart-grid:         var(--p-gray-800);
-  --color-chart-crosshair:    var(--p-gray-500);
-  --color-chart-ema9:         var(--p-blue-400);
-  --color-chart-ema21:        var(--p-purple-400);
-  --color-chart-ema50:        var(--p-cyan-400);
-  --color-chart-ema100:       var(--p-teal-400);
-  --color-chart-vwap:         var(--p-orange-400);
-  --color-chart-bollinger:    var(--p-gray-500);
-  --color-chart-rsi:          var(--p-purple-400);
-  --color-chart-entry-marker: var(--p-green-400);
-  --color-chart-exit-marker:  var(--p-red-400);
-  --color-chart-stop-level:   var(--p-red-400);
-  --color-chart-decision-dot: var(--p-yellow-400);
+  /* --- Chart-spezifische Farben (vollstaendige Liste, abgestimmt mit Chart-Komponenten-Konzept §16) --- */
+  --color-chart-candle-up:       var(--p-green-400);
+  --color-chart-candle-down:     var(--p-red-400);
+  --color-chart-volume:          var(--p-gray-600);
+  --color-chart-grid:            var(--p-gray-800);
+  --color-chart-crosshair:       var(--p-gray-500);
+
+  /* KPI-Overlays (Preis-Panel) */
+  --color-chart-ema9:            var(--p-blue-400);
+  --color-chart-ema21:           var(--p-purple-400);
+  --color-chart-ema50:           var(--p-cyan-400);
+  --color-chart-ema100:          var(--p-teal-400);
+  --color-chart-vwap:            var(--p-orange-400);
+  --color-chart-bollinger:       var(--p-gray-500);
+
+  /* KPI-Overlays (Oszillator-/Volatilitaets-/Flow-Panel) */
+  --color-chart-rsi:             var(--p-purple-400);
+  --color-chart-adx:             var(--p-red-400);
+  --color-chart-atr:             var(--p-cyan-400);
+  --color-chart-atr-decay:       var(--p-orange-400);
+  --color-chart-vol-ratio:       var(--p-gray-400);
+  --color-chart-accum-dist:      var(--p-yellow-400);
+
+  /* Trading-Event-Marker */
+  --color-chart-entry-marker:    var(--p-green-400);
+  --color-chart-partial-marker:  var(--p-yellow-400);
+  --color-chart-exit-marker:     var(--p-red-400);
+  --color-chart-stop-level:      var(--p-red-400);
+  --color-chart-decision-dot:    var(--p-yellow-400);
+
+  /* Session-Shading (Pre-Market / After-Hours Hintergrund) */
+  --color-chart-session-pre:     rgba(121, 85, 72, 0.10);
+  --color-chart-session-after:   rgba(33, 150, 243, 0.10);
+
+  /* Position-Shading (offene Position Hintergrund) */
+  --color-chart-position-profit: rgba(74, 222, 128, 0.05);
+  --color-chart-position-loss:   rgba(248, 113, 113, 0.05);
 
   /* --- Chart-Serienfarben (fuer Multi-Series-Vergleiche, z.B. Equity Curves) --- */
   --color-chart-series-1: var(--p-blue-400);
@@ -374,22 +394,37 @@ Semantic Tokens weisen den Primitives eine **Bedeutung** zu. Sie wechseln je nac
   --color-alert-warning:   var(--p-yellow-500);
   --color-alert-critical:  var(--p-red-500);
 
-  --color-chart-candle-up:    var(--p-green-500);
-  --color-chart-candle-down:  var(--p-red-500);
-  --color-chart-volume:       var(--p-gray-300);
-  --color-chart-grid:         var(--p-gray-200);
-  --color-chart-crosshair:    var(--p-gray-400);
-  --color-chart-ema9:         var(--p-blue-500);
-  --color-chart-ema21:        var(--p-purple-500);
-  --color-chart-ema50:        var(--p-cyan-400);
-  --color-chart-ema100:       var(--p-teal-400);
-  --color-chart-vwap:         var(--p-orange-500);
-  --color-chart-bollinger:    var(--p-gray-400);
-  --color-chart-rsi:          var(--p-purple-500);
-  --color-chart-entry-marker: var(--p-green-500);
-  --color-chart-exit-marker:  var(--p-red-500);
-  --color-chart-stop-level:   var(--p-red-500);
-  --color-chart-decision-dot: var(--p-yellow-500);
+  /* --- Chart-spezifische Farben (abgestimmt mit Chart-Komponenten-Konzept §16) --- */
+  --color-chart-candle-up:       var(--p-green-500);
+  --color-chart-candle-down:     var(--p-red-500);
+  --color-chart-volume:          var(--p-gray-300);
+  --color-chart-grid:            var(--p-gray-200);
+  --color-chart-crosshair:       var(--p-gray-400);
+
+  --color-chart-ema9:            var(--p-blue-500);
+  --color-chart-ema21:           var(--p-purple-500);
+  --color-chart-ema50:           var(--p-cyan-400);
+  --color-chart-ema100:          var(--p-teal-400);
+  --color-chart-vwap:            var(--p-orange-500);
+  --color-chart-bollinger:       var(--p-gray-400);
+
+  --color-chart-rsi:             var(--p-purple-500);
+  --color-chart-adx:             var(--p-red-500);
+  --color-chart-atr:             var(--p-cyan-400);
+  --color-chart-atr-decay:       var(--p-orange-500);
+  --color-chart-vol-ratio:       var(--p-gray-500);
+  --color-chart-accum-dist:      var(--p-yellow-500);
+
+  --color-chart-entry-marker:    var(--p-green-500);
+  --color-chart-partial-marker:  var(--p-yellow-500);
+  --color-chart-exit-marker:     var(--p-red-500);
+  --color-chart-stop-level:      var(--p-red-500);
+  --color-chart-decision-dot:    var(--p-yellow-500);
+
+  --color-chart-session-pre:     rgba(121, 85, 72, 0.08);
+  --color-chart-session-after:   rgba(33, 150, 243, 0.08);
+  --color-chart-position-profit: rgba(22, 163, 74, 0.05);
+  --color-chart-position-loss:   rgba(220, 38, 38, 0.05);
 
   --color-chart-series-1: var(--p-blue-500);
   --color-chart-series-2: var(--p-green-500);
@@ -592,27 +627,55 @@ function resolveToken(tokenName: string): string {
 /**
  * Resolve a set of chart-relevant tokens.
  * Memoized per theme. Invalidated on theme change via EventBus.
+ * Vollstaendige Liste aller Chart-Tokens — abgestimmt mit dem
+ * Chart-Komponenten-Konzept (chart-component-concept.md §16).
  */
 function resolveChartTokens(): ChartTokens {
   return {
-    candleUp:      resolveToken('--color-chart-candle-up'),
-    candleDown:    resolveToken('--color-chart-candle-down'),
-    volume:        resolveToken('--color-chart-volume'),
-    grid:          resolveToken('--color-chart-grid'),
-    crosshair:     resolveToken('--color-chart-crosshair'),
-    ema9:          resolveToken('--color-chart-ema9'),
-    ema21:         resolveToken('--color-chart-ema21'),
-    vwap:          resolveToken('--color-chart-vwap'),
-    bollinger:     resolveToken('--color-chart-bollinger'),
-    entryMarker:   resolveToken('--color-chart-entry-marker'),
-    exitMarker:    resolveToken('--color-chart-exit-marker'),
-    background:    resolveToken('--color-bg-surface'),
-    textColor:     resolveToken('--color-text-primary'),
+    // Candlestick
+    candleUp:        resolveToken('--color-chart-candle-up'),
+    candleDown:      resolveToken('--color-chart-candle-down'),
+
+    // Infrastruktur
+    volume:          resolveToken('--color-chart-volume'),
+    grid:            resolveToken('--color-chart-grid'),
+    crosshair:       resolveToken('--color-chart-crosshair'),
+    background:      resolveToken('--color-bg-surface'),
+    textColor:       resolveToken('--color-text-primary'),
+
+    // KPI-Overlays (Preis-Panel)
+    ema9:            resolveToken('--color-chart-ema9'),
+    ema21:           resolveToken('--color-chart-ema21'),
+    ema50:           resolveToken('--color-chart-ema50'),
+    ema100:          resolveToken('--color-chart-ema100'),
+    vwap:            resolveToken('--color-chart-vwap'),
+    bollinger:       resolveToken('--color-chart-bollinger'),
+
+    // KPI-Overlays (Sub-Panels)
+    rsi:             resolveToken('--color-chart-rsi'),
+    adx:             resolveToken('--color-chart-adx'),
+    atr:             resolveToken('--color-chart-atr'),
+    atrDecay:        resolveToken('--color-chart-atr-decay'),
+    volRatio:        resolveToken('--color-chart-vol-ratio'),
+    accumDist:       resolveToken('--color-chart-accum-dist'),
+
+    // Trading-Event-Marker
+    entryMarker:     resolveToken('--color-chart-entry-marker'),
+    partialMarker:   resolveToken('--color-chart-partial-marker'),
+    exitMarker:      resolveToken('--color-chart-exit-marker'),
+    stopLevel:       resolveToken('--color-chart-stop-level'),
+    decisionDot:     resolveToken('--color-chart-decision-dot'),
+
+    // Shading
+    sessionPre:      resolveToken('--color-chart-session-pre'),
+    sessionAfter:    resolveToken('--color-chart-session-after'),
+    positionProfit:  resolveToken('--color-chart-position-profit'),
+    positionLoss:    resolveToken('--color-chart-position-loss'),
   };
 }
 ```
 
-**Theme-Change-Handling:** Bei Theme-Wechsel wird ein Event (`global:theme-changed`) ueber den EventBus publiziert. Chart-Komponenten reagieren darauf und rufen `resolveChartTokens()` erneut auf, um die Chart-Instanz mit aktualisierten Farben zu konfigurieren.
+**Theme-Change-Handling:** Bei Theme-Wechsel wird ein Event (`global:theme-changed`) ueber den EventBus publiziert. Chart-Komponenten reagieren darauf und rufen `resolveChartTokens()` erneut auf, um die Chart-Instanz mit aktualisierten Farben zu konfigurieren. Details zur Theme-Integration im Chart: siehe [Chart-Komponenten-Konzept §16](chart-component-concept.md#16-farb-schema-und-design-token-integration).
 
 ### 2.7 Theme-Switching
 
@@ -1129,6 +1192,8 @@ function useTradingOpsEventSubscriptions(): void {
 
 SSE-Daten fliessen ueber dedizierte Hooks direkt in den Global Store.
 
+> **Sonderfall Chart-Komponente:** Die IntraDayChart-Komponente (siehe [Chart-Komponenten-Konzept](chart-component-concept.md)) nutzt `store.subscribe()` statt render-basierter Selektoren, um SSE-Daten imperativ an die TradingView Lightweight Charts API weiterzugeben — ohne React-Render-Zyklus. Die SSE-Daten-Invariante (Daten fliessen ueber den Store) wird eingehalten, aber der Update-Pfad umgeht React fuer Performance bei 1-Sekunden-Updates. Details: Chart-Konzept §6.
+
 #### SSE-Technikentscheidung: Fetch-basiertes Streaming
 
 **Entscheidung:** Der SSE-Client nutzt **`fetch()` mit `ReadableStream`** (nicht die native `EventSource` API).
@@ -1600,7 +1665,7 @@ function TradingDashboardPage(): ReactElement {
 | **Build Tool** | Vite + SWC | Vorgabe (Guardrail §9). Schneller Build, HMR |
 | **Routing** | React Router v6+ | Marktstandard, Nested Routes, Lazy Loading |
 | **State Management** | Zustand | Leichtgewichtig, Selector-basiert, SSE-kompatibel (§4.2) |
-| **Charting** | TradingView Lightweight Charts | Vorgabe (Kap 9 §4.1). Trading-optimiert, Candlestick-Charts |
+| **Charting** | TradingView Lightweight Charts | Vorgabe (Kap 9 §4.1). Trading-optimiert, Candlestick-Charts. Detaillierte Chart-Architektur: [Chart-Komponenten-Konzept](chart-component-concept.md) |
 | **Supplementary Charts** | Recharts | Vorgabe (Kap 9 §4.1). P&L-Verlauf, Score-History |
 | **Styling** | CSS Modules + CSS Custom Properties | Vorgabe (Guardrail §8). Scoped Styles, Design Tokens |
 | **Fonts** | Inter (Sans), JetBrains Mono (Code) | Optimiert fuer Screen-Lesbarkeit und Zahlenform (§2.4) |
@@ -1628,9 +1693,11 @@ Fuer eine Trading-UI mit SSE-basierten Echtzeit-Updates gelten spezifische Perfo
 
 ### 10.2 Chart-Performance
 
+Detaillierte Chart-Architektur und Performance-Ueberlegungen: siehe [Chart-Komponenten-Konzept](chart-component-concept.md) §15.
+
 | Regel | Details |
 |-------|---------|
-| **TradingView LW Charts** | Update-Methoden (`update()`, `setData()`) ausserhalb des React Render-Cycles aufrufen (via `useRef` + `useEffect`) |
+| **TradingView LW Charts** | Update-Methoden (`update()`, `setData()`) ausserhalb des React Render-Cycles aufrufen (via `store.subscribe()` + imperativ). Kein Selector-basiertes Re-Render fuer Chart-Daten |
 | **Recharts** | Daten-Updates per Zustand-Selector; Recharts rendert automatisch bei Prop-Change |
 | **Keine unnoetige Re-Renders** | Chart-Wrapper-Komponenten mit `React.memo` nur bei nachgewiesenem Problem (Lean-Prinzip) |
 
@@ -1743,6 +1810,7 @@ export default defineConfig({
 
 | Dokument | Pfad |
 |----------|------|
+| Chart-Komponenten-Konzept | `frontend/architecture/chart-component-concept.md` |
 | Kap 9: React-Frontend | `frontend/architecture/09-frontend.md` |
 | Frontend-Guardrail | `frontend/guardrails/frontend.md` |
 | Web Application Requirements | `frontend/requirements/web-application-requirements.md` |
