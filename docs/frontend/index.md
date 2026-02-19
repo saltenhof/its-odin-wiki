@@ -6,7 +6,8 @@ Das ODIN-Dashboard ist eine React 18+ Single-Page-Application mit TypeScript und
 
 | Kapitel | Thema | Version |
 |---------|-------|---------|
-| [Kap 9](architecture/09-frontend.md) | React-Frontend | v0.3 |
+| [Kap 9](architecture/09-frontend.md) | React-Frontend (API-Contracts, Kommunikation, Komponenten) | v0.3 |
+| [Architekturkonzept](architecture/frontend-architecture-concept.md) | Design System & Domain-Driven Modulstruktur | v1.0 |
 
 ## Guardrails
 

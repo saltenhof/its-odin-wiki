@@ -75,6 +75,7 @@ nav:
     - Architektur:
       - frontend/architecture/index.md
       - "Kap 9 — Frontend": frontend/architecture/09-frontend.md
+      - "Architekturkonzept": frontend/architecture/frontend-architecture-concept.md
     - Guardrails:
       - Frontend: frontend/guardrails/frontend.md
     - Requirements:
