@@ -77,6 +77,7 @@ nav:
       - "Kap 9 — Frontend": frontend/architecture/09-frontend.md
       - "Architekturkonzept": frontend/architecture/frontend-architecture-concept.md
       - "Chart-Komponente": frontend/architecture/chart-component-concept.md
+      - "API Interface Spec": frontend/architecture/api-interface-spec.md
     - Guardrails:
       - Frontend: frontend/guardrails/frontend.md
     - Requirements:
