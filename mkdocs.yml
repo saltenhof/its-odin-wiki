@@ -49,7 +49,9 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Fachkonzept: concept/intraday-agent-concept.md
+  - Konzept:
+    - Fachkonzept: concept/intraday-agent-concept.md
+    - "Strategieoptimierung & LLM-Integration": concept/strategy-optimization-sparring.md
   - Architektur:
     - architecture/index.md
     - "Kap 0 — Systemübersicht": architecture/00-system-overview.md
