@@ -29,7 +29,7 @@ Alle 11 Architekturkapitel sind geschrieben, reviewed (ChatGPT R1–R4), und dur
 
 ### Web Application Transformation: FERTIG (WP-01 bis WP-10)
 
-Alle 10 Work Packages aus dem Anforderungskatalog (`requirements/web-application-requirements.md`) sind implementiert, ChatGPT-reviewed (wo moeglich), getestet und committed.
+Alle 10 Work Packages aus dem Anforderungskatalog (`frontend/requirements/web-application-requirements.md`) sind implementiert, ChatGPT-reviewed (wo moeglich), getestet und committed.
 
 **Kennzahlen:**
 - ~9.500 Zeilen neuer Code

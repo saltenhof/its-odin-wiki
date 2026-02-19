@@ -49,29 +49,37 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Fachkonzept:
-      - "Intraday-Agent-Konzept (v1.5)": concept/intraday-agent-concept.md
+  - Fachkonzept: concept/intraday-agent-concept.md
   - Architektur:
-      - architecture/index.md
-      - "Kap 0 — Systemuebersicht": architecture/00-system-overview.md
-      - "Kap 1 — Modularchitektur": architecture/01-module-architecture.md
-      - "Kap 2 — Echtzeit-Datenpipeline": architecture/02-realtime-pipeline.md
-      - "Kap 3 — Broker-Anbindung": architecture/03-broker-integration.md
-      - "Kap 4 — KPI-Engine": architecture/04-kpi-engine.md
-      - "Kap 5 — LLM-Integration": architecture/05-llm-integration.md
-      - "Kap 6 — Rules Engine & Decision Loop": architecture/06-rules-engine.md
-      - "Kap 7 — Order Management System": architecture/07-oms.md
-      - "Kap 8 — Datenmodell & Persistenz": architecture/08-data-model.md
-      - "Kap 9 — React-Frontend": architecture/09-frontend.md
-      - "Kap 10 — Deployment & Betrieb": architecture/10-deployment.md
-  - Guardrails:
-      - guardrails/index.md
-      - "Modulstruktur": guardrails/module-structure.md
-      - "Entwicklungsprozess": guardrails/development-process.md
-      - "Frontend": guardrails/frontend.md
-  - Requirements:
-      - "Web Application Transformation": requirements/web-application-requirements.md
+    - architecture/index.md
+    - "Kap 0 — Systemübersicht": architecture/00-system-overview.md
+  - Guardrails: guardrails/index.md
+  - Backend:
+    - backend/index.md
+    - Architektur:
+      - backend/architecture/index.md
+      - "Kap 1 — Modularchitektur": backend/architecture/01-module-architecture.md
+      - "Kap 2 — Datenpipeline": backend/architecture/02-realtime-pipeline.md
+      - "Kap 3 — Broker-Anbindung": backend/architecture/03-broker-integration.md
+      - "Kap 4 — KPI-Engine": backend/architecture/04-kpi-engine.md
+      - "Kap 5 — LLM-Integration": backend/architecture/05-llm-integration.md
+      - "Kap 6 — Rules Engine": backend/architecture/06-rules-engine.md
+      - "Kap 7 — OMS": backend/architecture/07-oms.md
+      - "Kap 8 — Datenmodell": backend/architecture/08-data-model.md
+      - "Kap 10 — Deployment": backend/architecture/10-deployment.md
+    - Guardrails:
+      - Modulstruktur: backend/guardrails/module-structure.md
+      - Entwicklungsprozess: backend/guardrails/development-process.md
+  - Frontend:
+    - frontend/index.md
+    - Architektur:
+      - frontend/architecture/index.md
+      - "Kap 9 — Frontend": frontend/architecture/09-frontend.md
+    - Guardrails:
+      - Frontend: frontend/guardrails/frontend.md
+    - Requirements:
+      - Web Application: frontend/requirements/web-application-requirements.md
   - Meta:
-      - "Playbook": meta/playbook.md
-      - "Working State": meta/working-state.md
-      - "Konzept-Changelog": meta/concept-changelog.md
+    - Playbook: meta/playbook.md
+    - Working State: meta/working-state.md
+    - Concept Changelog: meta/concept-changelog.md

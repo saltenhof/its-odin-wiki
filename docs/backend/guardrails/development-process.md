@@ -16,7 +16,7 @@ Dieser Guardrail definiert den verbindlichen Entwicklungsprozess fuer den KI-Age
 
 **Referenzen:**
 - Regelkatalog R1–R13 + CSpec (`.claude/instructions`)
-- Modul-Struktur-Guardrail (`guardrail-module-structure.md`)
+- Modul-Struktur-Guardrail (`module-structure.md`)
 - Kapitel 0: Systemuebersicht, Kapitel 1: Modularchitektur
 
 **Definition of Done:** Compile ok, erforderliche Tests gruen, Review-Regeln erfuellt, Doku falls noetig, Ergebnisbericht an Nutzer.
@@ -142,7 +142,7 @@ ChatGPT-Review **NICHT** bei:
 
 Vor dem Schreiben von Code sicherstellen:
 
-**Modul-Struktur (guardrail-module-structure.md):**
+**Modul-Struktur (module-structure.md):**
 - Package im richtigen Modul-Root (`de.its.odin.{modul}`)
 - Sub-Package korrekt (config/, model/, service/, live/, sim/, ib/)
 - Namenskonventionen (Abschnitt 3 des Modul-Guardrails)
@@ -210,22 +210,22 @@ Jede Implementierung muss direkt gegen die Architektur-Spezifikation erfolgen �
 
 3. **Diff-First bei bestehenden Komponenten:** Wenn eine Komponente bereits implementiert ist und ueberarbeitet werden soll, wird zuerst ein Spec-Diff erstellt (Spezifikation vs. Ist-Zustand). Die Implementierung arbeitet dann gezielt die Gaps ab — nicht pauschal "verbessern".
 
-4. **Spec-Referenz im Code:** Bei komplexen Implementierungen soll der JavaDoc-Header der Klasse auf das relevante Wiki-Kapitel verweisen (z.B. `@see docs/architecture/05-llm-integration.md, Abschnitt 8`).
+4. **Spec-Referenz im Code:** Bei komplexen Implementierungen soll der JavaDoc-Header der Klasse auf das relevante Wiki-Kapitel verweisen (z.B. `@see docs/backend/architecture/05-llm-integration.md, Abschnitt 8`).
 
 **Relevante Wiki-Dokumente:**
 
 | Modul | Spec-Dokument |
 |-------|--------------|
-| odin-api | `docs/architecture/00-system-overview.md`, `01-module-architecture.md` |
-| odin-data | `docs/architecture/02-realtime-pipeline.md` |
-| odin-broker | `docs/architecture/03-broker-integration.md` |
-| odin-brain (KPI) | `docs/architecture/04-kpi-engine.md` |
-| odin-brain (LLM) | `docs/architecture/05-llm-integration.md` |
-| odin-brain (Rules) | `docs/architecture/06-rules-engine.md` |
-| odin-execution | `docs/architecture/07-oms.md` |
-| Datenmodell | `docs/architecture/08-data-model.md` |
-| odin-frontend | `docs/architecture/09-frontend.md` |
-| Deployment | `docs/architecture/10-deployment.md` |
+| odin-api | `docs/architecture/00-system-overview.md`, `docs/backend/architecture/01-module-architecture.md` |
+| odin-data | `docs/backend/architecture/02-realtime-pipeline.md` |
+| odin-broker | `docs/backend/architecture/03-broker-integration.md` |
+| odin-brain (KPI) | `docs/backend/architecture/04-kpi-engine.md` |
+| odin-brain (LLM) | `docs/backend/architecture/05-llm-integration.md` |
+| odin-brain (Rules) | `docs/backend/architecture/06-rules-engine.md` |
+| odin-execution | `docs/backend/architecture/07-oms.md` |
+| Datenmodell | `docs/backend/architecture/08-data-model.md` |
+| odin-frontend | `docs/frontend/architecture/09-frontend.md` |
+| Deployment | `docs/backend/architecture/10-deployment.md` |
 
 ---
 
@@ -677,7 +677,7 @@ Frontend-Code unterliegt eigenen Konventionen:
 - React/TypeScript, kein Java
 - Java-Regeln (R5, R6, R7, CSpec) gelten NICHT
 - Kommunikation mit Backend ueber SSE + REST — Aenderungen an den Endpunkten erfordern Koordination mit odin-app
-- Frontend-spezifische Bauvorschriften: `guardrail-frontend.md`
+- Frontend-spezifische Bauvorschriften: `docs/frontend/guardrails/frontend.md`
 
 ---
 

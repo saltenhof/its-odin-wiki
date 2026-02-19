@@ -12,9 +12,9 @@ Dieser Guardrail definiert die verbindlichen Bauvorschriften fuer `odin-frontend
 **Geltungsbereich:** Ausschliesslich `odin-frontend` (React 18+, TypeScript, Vite).
 
 **Abgrenzung:**
-- Kapitel 9 (`09-frontend.md`) definiert die **Architektur** (WAS gebaut wird): Komponenten, Endpoints, Kommunikationsprotokolle, Sim-Semantik
+- Kapitel 9 (`frontend/architecture/09-frontend.md`) definiert die **Architektur** (WAS gebaut wird): Komponenten, Endpoints, Kommunikationsprotokolle, Sim-Semantik
 - Dieser Guardrail definiert die **Bauvorschriften** (WIE gebaut wird): Projektstruktur, Naming, TypeScript-Regeln, State Management, Test-Strategie
-- Java-Backend-Module → `guardrail-module-structure.md` + `guardrail-development-process.md`
+- Java-Backend-Module → `docs/backend/guardrails/module-structure.md` + `docs/backend/guardrails/development-process.md`
 - Redundanzen mit Backend-Guardrails sind bewusst akzeptiert (Frontend-Entwickler sollen nicht Backend-Guardrails lesen muessen)
 
 **Referenzen:**

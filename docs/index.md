@@ -11,8 +11,9 @@ Vollautomatischer Intraday-Trading-Agent fuer Aktien (US, Europa). Kombiniert LL
 | Bereich | Inhalt |
 |---------|--------|
 | [Fachkonzept](concept/intraday-agent-concept.md) | Was ODIN fachlich tut — Strategielogik, Entry/Exit, Regime, Risk |
-| [Architektur](architecture/index.md) | Wie ODIN technisch gebaut ist — 11 Kapitel von Systemuebersicht bis Deployment |
-| [Guardrails](guardrails/index.md) | Verbindliche Bauvorschriften fuer Backend, Frontend und Entwicklungsprozess |
+| [Architektur](architecture/index.md) | Systemuebersicht (Kap 0) — uebergreifend |
+| [Backend](backend/index.md) | Architektur (Kap 1–8, 10), Guardrails |
+| [Frontend](frontend/index.md) | Architektur (Kap 9), Guardrails, Requirements |
 | [Meta](meta/playbook.md) | Playbook, Working State, Konzept-Changelog |
 
 ## Tech-Stack

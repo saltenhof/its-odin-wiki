@@ -38,20 +38,20 @@ Das fachliche Konzept liegt in `intraday-agent-concept.md` (v1.5). Das Architekt
 
 | # | Kapitel | Datei | Status | Zusammenfassung |
 |---|---------|-------|--------|-----------------|
-| 0 | Gesamtuebersicht & Systemkontext | `00-system-overview.md` | FERTIG (v0.7) | Tiefenreview + Cross-Review + DDD-Modulschnitt, FINAL GO |
-| 1 | Modularchitektur & Package-Struktur | `01-module-architecture.md` | FERTIG (v0.5) | Tiefenreview + DDD-Modulschnitt + ChatGPT-Review, GO |
-| 2 | Echtzeit-Datenpipeline | `02-realtime-pipeline.md` | FERTIG (v0.4) | Tiefenreview: 3 Iterationen, GO |
-| 3 | Broker-Anbindung (IB Gateway, TWS API 10.40) | `03-broker-integration.md` | FERTIG (v0.3) | Tiefenreview: 3 Iterationen (REWORK+R2+R3), GO |
-| 4 | KPI-Engine (ta4j, Parallelisierung) | `04-kpi-engine.md` | FERTIG (v0.3) | Tiefenreview: 3 Iterationen (REWORK+R2+R3), GO |
-| 5 | LLM-Integration (Claude SDK, OpenAI) | `05-llm-integration.md` | FERTIG (v0.3) | Tiefenreview: 3 Iterationen (REWORK+R2+R3), GO |
-| 6 | Rules Engine & Decision Loop | `06-rules-engine.md` | FERTIG (v0.3) | Tiefenreview: 2 Iterationen (REWORK+R2), GO |
-| 7 | Order Management System (OMS) | `07-oms.md` | FERTIG (v0.3) | Tiefenreview: 4 Iterationen (REWORK+R2+R3+R4), GO |
-| 8 | Datenmodell & Persistenz (PostgreSQL) | `08-data-model.md` | FERTIG (v0.6) | Tiefenreview + Cross-Review R1+R2 + DDD-Modulschnitt + ChatGPT-Review, FINAL GO |
-| 9 | React-Frontend | `09-frontend.md` | FERTIG (v0.3) | Tiefenreview: 2 Iterationen (REWORK+R2), GO |
-| 10 | Deployment & Betrieb (Windows, On-Prem) | `10-deployment.md` | FERTIG (v0.6) | Tiefenreview + Cross-Review R1+R2 + DDD-Modulschnitt, FINAL GO |
-| — | Guardrail: Modulstruktur | `guardrail-module-structure.md` | FERTIG (v1.2) | ChatGPT R1+R2 GO + DDD-Modulschnitt |
-| — | Guardrail: Entwicklungsprozess | `guardrail-development-process.md` | FERTIG (v1.2) | DDD-Modulschnitt |
-| — | Guardrail: Frontend | `guardrail-frontend.md` | FERTIG (v1.0) | Erstversion, Feature-basierte Struktur, TS-Regeln, SSE/REST |
+| 0 | Gesamtuebersicht & Systemkontext | `architecture/00-system-overview.md` | FERTIG (v0.7) | Tiefenreview + Cross-Review + DDD-Modulschnitt, FINAL GO |
+| 1 | Modularchitektur & Package-Struktur | `backend/architecture/01-module-architecture.md` | FERTIG (v0.5) | Tiefenreview + DDD-Modulschnitt + ChatGPT-Review, GO |
+| 2 | Echtzeit-Datenpipeline | `backend/architecture/02-realtime-pipeline.md` | FERTIG (v0.4) | Tiefenreview: 3 Iterationen, GO |
+| 3 | Broker-Anbindung (IB Gateway, TWS API 10.40) | `backend/architecture/03-broker-integration.md` | FERTIG (v0.3) | Tiefenreview: 3 Iterationen (REWORK+R2+R3), GO |
+| 4 | KPI-Engine (ta4j, Parallelisierung) | `backend/architecture/04-kpi-engine.md` | FERTIG (v0.3) | Tiefenreview: 3 Iterationen (REWORK+R2+R3), GO |
+| 5 | LLM-Integration (Claude SDK, OpenAI) | `backend/architecture/05-llm-integration.md` | FERTIG (v0.3) | Tiefenreview: 3 Iterationen (REWORK+R2+R3), GO |
+| 6 | Rules Engine & Decision Loop | `backend/architecture/06-rules-engine.md` | FERTIG (v0.3) | Tiefenreview: 2 Iterationen (REWORK+R2), GO |
+| 7 | Order Management System (OMS) | `backend/architecture/07-oms.md` | FERTIG (v0.3) | Tiefenreview: 4 Iterationen (REWORK+R2+R3+R4), GO |
+| 8 | Datenmodell & Persistenz (PostgreSQL) | `backend/architecture/08-data-model.md` | FERTIG (v0.6) | Tiefenreview + Cross-Review R1+R2 + DDD-Modulschnitt + ChatGPT-Review, FINAL GO |
+| 9 | React-Frontend | `frontend/architecture/09-frontend.md` | FERTIG (v0.3) | Tiefenreview: 2 Iterationen (REWORK+R2), GO |
+| 10 | Deployment & Betrieb (Windows, On-Prem) | `backend/architecture/10-deployment.md` | FERTIG (v0.6) | Tiefenreview + Cross-Review R1+R2 + DDD-Modulschnitt, FINAL GO |
+| — | Guardrail: Modulstruktur | `backend/guardrails/module-structure.md` | FERTIG (v1.2) | ChatGPT R1+R2 GO + DDD-Modulschnitt |
+| — | Guardrail: Entwicklungsprozess | `backend/guardrails/development-process.md` | FERTIG (v1.2) | DDD-Modulschnitt |
+| — | Guardrail: Frontend | `frontend/guardrails/frontend.md` | FERTIG (v1.0) | Erstversion, Feature-basierte Struktur, TS-Regeln, SSE/REST |
 
 > Kapitelplan ist vorlaeufig. Kann sich im Laufe der Arbeit aendern (Kapitel splitten, zusammenlegen, neue hinzufuegen).
 
@@ -129,7 +129,7 @@ Das fachliche Konzept liegt in `intraday-agent-concept.md` (v1.5). Das Architekt
 
 ### 2026-02-15: Guardrail Frontend erstellt + WebSocket-Bereinigung
 
-- `guardrail-frontend.md` v1.0 erstellt: DDD/Feature-basierte Projektstruktur, TypeScript-Regeln, State Management, Kommunikation, Komponenten-Regeln, Styling, Build/Tooling, Test-Strategie, Checkliste
+- `frontend/guardrails/frontend.md` v1.0 erstellt: DDD/Feature-basierte Projektstruktur, TypeScript-Regeln, State Management, Kommunikation, Komponenten-Regeln, Styling, Build/Tooling, Test-Strategie, Checkliste
 - WebSocket-Referenzen in Kap 1 (3 Stellen) und Guardrail Dev Process (1 Stelle) korrigiert → konsistent mit Kap 9 ("Kein WebSocket, REST POST fuer Controls")
 - Kapitelplan um alle 3 Guardrails ergaenzt
 
