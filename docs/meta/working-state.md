@@ -120,8 +120,8 @@ Alle 10 Work Packages aus dem Anforderungskatalog (`frontend/requirements/web-ap
 
 - **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain) — nicht WP-bezogen, vorher bereits vorhanden
 - **Unstaged Dateien** aus frueheren Sessions: `MarketOrderJustification.java`, `V014__fix_exit_reason_check_constraint.sql`, Aenderungen in `LlmAnalystOrchestrator.java`, `PromptBuilder.java`, `OdinEWrapper.java`, `OrderManagementService.java`
-- **REQ-CHART-004** (Multi-Timeframe 15m): On-the-fly Aggregation implementiert (BarAggregationService), aber nur 5m→15m
-- **REQ-KPI-003** (Anchored VWAP): P2, nicht implementiert
+- **REQ-CHART-004** (Multi-Timeframe 15m): FERTIG — BarAggregationService unterstuetzt 5m→15m, 1m→5m, 1m→15m. ChartController mit Fallback-Kaskade
+- **REQ-KPI-003** (Anchored VWAP): FERTIG — AnchoredVwapCalculator (odin-data), IndicatorSnapshotEntity + V020 Migration (anchored_vwap Spalte), On-the-fly AVWAP-Berechnung (VwapAccumulator in IndicatorCalculationService), IndicatorDto-Mapping. ChatGPT-reviewed
 - **REQ-OPT-006** (Iterative Optimierung): Grundstruktur da (parentOptimizationId), Auto-Chain nicht implementiert
 - **REQ-LIVE-004** (Live-Bars in DB): P2, nicht implementiert
 
@@ -181,7 +181,5 @@ Frontend und Backend laufen End-to-End gegen die echte Datenbank.
 ### Offene Punkte
 
 - **8 pre-existing Test-Failures** in `LlmAnalystOrchestratorTest` (odin-brain)
-- **REQ-CHART-004** (Multi-Timeframe 15m): Nur 5m→15m
-- **REQ-KPI-003** (Anchored VWAP): P2, nicht implementiert
 - **REQ-OPT-006** (Iterative Optimierung): Auto-Chain nicht implementiert
 - **REQ-LIVE-004** (Live-Bars in DB): P2, nicht implementiert
