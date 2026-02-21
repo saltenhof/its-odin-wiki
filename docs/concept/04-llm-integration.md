@@ -23,7 +23,7 @@ Das LLM ist KEIN reiner Analyst mehr -- es ist ein **Tactical Parameter Controll
 | **Claude** | **Claude Agent SDK** (Java) | Primaer. Strukturierte Analyse via Tool-Use/Structured-Output |
 | **OpenAI** | OpenAI API (REST, pay-per-use) | Alternativ. A/B-Tests, Evaluation. **Kein Runtime-Failover** |
 
-Der aktive Provider wird **vor Handelsstart per Konfiguration** gewaehlt und steht fuer den gesamten Handelstag fest. Bei Ausfall greift der Circuit Breaker (Abschnitt 10) → Quant-Only-Modus, KEIN automatischer Provider-Wechsel.
+Der aktive Provider wird **vor Handelsstart per Konfiguration** gewaehlt und steht fuer den gesamten Handelstag fest. Bei Ausfall greift der Circuit Breaker (Abschnitt 11) → Quant-Only-Modus, KEIN automatischer Provider-Wechsel.
 
 **Backtest LLM Provider (Stakeholder-Entscheidung):** Konfigurierbar CACHED / CLAUDE / OPENAI.
 
@@ -35,8 +35,8 @@ Der aktive Provider wird **vor Handelsstart per Konfiguration** gewaehlt und ste
 
 | Kategorie | Felder | Nutzung |
 |-----------|--------|---------|
-| **Decision-Features** | `regime`, `regime_confidence`, `pattern_candidates` | Input fuer Rules Engine und Quant Validation |
-| **Kontext-Features** | `opportunity_zones`, `entry_price_zone`, `target_price`, `hold_duration_bars`, `urgency_level` | Optionale Kontextsignale fuer Rules Engine |
+| **Decision-Features** | `regime`, `regime_confidence`, `pattern_candidates`, `setup_type`, `tactic`, `urgency_level` | Input fuer Rules Engine und Quant Validation |
+| **Kontext-Features** | `opportunity_zones`, `hold_duration_bars` | Optionale Kontextsignale fuer Rules Engine |
 | **Tactical Controls (P0)** | `exit_bias`, `trail_mode`, `profit_protection_profile`, `target_policy` | Gebundene Enums fuer taktische Steuerung |
 | **Tactical Controls (P1)** | `subregime`, `exhaustion_signal` | Regime-Feinsteuerung |
 | **Tactical Controls (P2/P3)** | `entry_timing_bias`, `scale_out_profile` | Erweiterte Steuerung |
@@ -49,11 +49,11 @@ Der aktive Provider wird **vor Handelsstart per Konfiguration** gewaehlt und ste
 | `regime` | Enum: OPENING_VOLATILITY, TREND_UP, TREND_DOWN, RANGE_BOUND, HIGH_VOLATILITY, BREAKOUT_ATTEMPT, EXHAUSTION_RISK, RECOVERY, UNCERTAIN | Regime-Label | Decision |
 | `regime_confidence` | Float 0.0--1.0 | Sicherheit der Regime-Einschaetzung | Decision |
 | `pattern_candidates` | Object[]: `{pattern: Enum, confidence: Float, phase: String}` (max. 2) | Erkannte Pattern mit Confidence. Pattern-Enum: FLUSH_RECLAIM_RUN, COIL_BREAKOUT, OPENING_CONSOLIDATION, PULLBACK_REENTRY, NONE | Decision |
+| `setup_type` | Enum: OPENING_CONSOLIDATION, FLUSH_RECLAIM, COIL_BREAKOUT, PULLBACK_REENTRY, RECOVERY_TRADE, NONE | Erkannter Setup-Typ fuer die aktuelle Marktsituation | Decision |
+| `tactic` | Enum: WAIT_PULLBACK, BREAKOUT_FOLLOW, NO_TRADE | Taktische Empfehlung: auf Ruecksetzer warten, Breakout folgen, oder kein Trade | Decision |
+| `urgency_level` | Enum: LOW, MEDIUM, HIGH | Zeitkritikalitaet der aktuellen Situation | Decision |
 | `opportunity_zones` | Object[]: `{price_min, price_max, type: ENTRY/EXIT, reasoning}` | Preis-Zonen mit erhoehter Chance | Kontext |
-| `entry_price_zone` | Object: `{min, ideal, max}` | Konkreter Preisbereich fuer Entry. `ideal` = Limit-Preis, `max` = Obergrenze fuer Repricing | Kontext |
-| `target_price` | Float oder null | Optionales Gewinnziel (LLM-Schaetzung, wird von Rules validiert) | Kontext |
 | `hold_duration_bars` | Int | Erwartete Haltedauer in 3m-Bars (Referenz-Timeframe) | Kontext |
-| `urgency_level` | Enum: LOW, MEDIUM, HIGH, CRITICAL | Zeitkritikalitaet der aktuellen Situation | Kontext |
 | `exit_bias` | Enum: HOLD, NEUTRAL, EXIT_SOON, EXIT_NOW | Aktiviert TACTICAL_EXIT-Check | Tactical P0 |
 | `trail_mode` | Enum: WIDE, NORMAL, TIGHT | Multiplikator auf base trailingStopAtrFactor | Tactical P0 |
 | `profit_protection_profile` | Enum: OFF, STANDARD, AGGRESSIVE | Waehlt R-basierte Stufentabelle | Tactical P0 |
@@ -68,21 +68,19 @@ Der aktive Provider wird **vor Handelsstart per Konfiguration** gewaehlt und ste
 | `market_context_signals` | String[] (max 5) | Kontextuell relevante Beobachtungen | Logging |
 | `explanation_short` | String (max 1--2 Saetze) | Fuer Dashboard-Anzeige | Logging |
 
-### 3.3 Beziehung zwischen opportunity_zones und entry_price_zone
+### 3.3 Entry-Preise: Deterministische Bestimmung durch OMS
 
-`entry_price_zone` ist die **Konkretisierung** einer ENTRY-typed `opportunity_zone` auf einen handelbaren Preisbereich:
-- Die Rules Engine prueft, ob der aktuelle Preis in einer `opportunity_zone` liegt
-- Die Execution nutzt `entry_price_zone` fuer den Order-Preis
-- `entry_price_zone.ideal` = Limit-Preis
-- `entry_price_zone.max` = harte Obergrenze fuer Repricing
+Das LLM liefert **keine** konkreten Entry-Preise, Limit-Preise oder Repricing-Obergrenzen. Entry-Preise werden deterministisch vom OMS bestimmt, basierend auf Struktur-Levels (Pre-Market High/Low, Prior Day Close/High/Low, erste 1m-Bar High/Low). Details siehe 07-oms-execution.md.
+
+Die `opportunity_zones` des LLM dienen ausschliesslich als qualitative Orientierung -- die Rules Engine prueft, ob der aktuelle Preis in einer solchen Zone liegt. Die konkrete Order-Preisbildung ist vollstaendig OMS-Verantwortung.
 
 ### 3.4 Regime-Confidence-Schwellen
 
-| Regime-Confidence | Quant-Score-Schwelle | Verhalten |
-|-------------------|---------------------|-----------|
+| Regime-Confidence | Quant-Gate-Anforderung | Verhalten |
+|-------------------|------------------------|-----------|
 | < 0.5 | -- | Regime gilt als UNCERTAIN, kein Entry |
-| 0.5 -- 0.7 | >= 0.70 | Erhoehte Quant-Huerde |
-| > 0.7 | >= 0.50 | Standard-Huerde |
+| 0.5 -- 0.7 | Alle Gates + verschaerfte Schwellen | Erhoehte Quant-Huerde |
+| > 0.7 | Alle Gates (Standard-Schwellen) | Standard-Huerde |
 
 ---
 
@@ -146,7 +144,7 @@ Es gilt IMMER der engere (konservativere) Wert. Das LLM kann den Trail nie weite
 
 | Trigger | Bedingung |
 |---------|-----------|
-| Entry-Approaching | Preis betritt eine Opportunity-Zone (Edge-triggered, nicht Level-triggered) oder naehert sich `entry_price_zone` auf < 0.5x ATR(14). Debounce: 90s zwischen proaktiven Refreshes |
+| Entry-Approaching | Preis betritt eine Opportunity-Zone (Edge-triggered, nicht Level-triggered) oder naehert sich einem OMS-Struktur-Level auf < 0.5x ATR(14). Debounce: 90s zwischen proaktiven Refreshes |
 | Signifikante Ereignisse | VWAP-Durchbruch, Volumen-Spike > 2x, Stop-Loss-Annaeherung, Profit-Target erreicht |
 | State-Transition | Jeder Zustandswechsel der Pipeline-FSM |
 | Crash/Spike Event | CRASH_DOWN oder SPIKE_UP erkannt |
@@ -188,16 +186,56 @@ Das 5-stufige Basis-Regime-Modell (TREND_UP, TREND_DOWN, RANGE_BOUND, HIGH_VOLAT
 
 ---
 
-## 8. Prompt-Architektur: Dreistufiges Context Window
+## 8. Pre-Market Instrument Profiling
 
-### 8.1 System Prompt (fest)
+In der **WARMUP-Phase** (vor dem ersten Trading) analysiert das LLM die historischen Intraday-Verlaeufe des uebergebenen Instruments (letzte N Handelstage). Ziel ist ein strukturiertes Instrument-Profil, das als **statischer Kontext** in alle Intraday-LLM-Calls des Tages einfliesst.
+
+### 8.1 Auftrag an das LLM
+
+Das LLM erhaelt die historischen Intraday-Daten und identifiziert typische Muster:
+
+| Dimension | Fragestellung |
+|-----------|--------------|
+| **Gap-Verhalten** | Gap-and-Go vs. Gap-and-Fade -- wie reagiert das Instrument typischerweise auf Overnight-Gaps? |
+| **Recovery-Tendenz** | V-Recovery vs. Continuation nach Flush -- neigt das Instrument zu schnellen Erholungen oder setzt es Abwaertsbewegungen fort? |
+| **Reversal-Zeitfenster** | In welchen Zeitfenstern treten typische Intraday-Reversals auf? (z.B. 10:00--10:30 ET, Mittagstief) |
+| **Volatilitaetsprofil** | Wie entwickelt sich die Volatilitaet ueber den Tag? Fruehe Expansion → Mittagskontraktion → Power-Hour-Expansion? |
+| **Trendkontinuitaet** | Neigt das Instrument zu Trendtagen oder Mean-Reversion? |
+
+### 8.2 Output-Schema (Instrument-Profil)
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `gap_behavior` | Enum: GAP_AND_GO, GAP_AND_FADE, MIXED | Typisches Verhalten bei Overnight-Gaps |
+| `recovery_tendency` | Enum: HIGH, MODERATE, LOW | Neigung zu V-Recovery nach Flush |
+| `typical_reversal_windows` | String[] (max 3) | Zeitfenster mit erhoehter Reversal-Wahrscheinlichkeit (ET) |
+| `volatility_profile` | Enum: FRONT_LOADED, EVEN, U_SHAPED, BACK_LOADED | Verteilung der Intraday-Volatilitaet |
+| `trend_persistence` | Enum: HIGH, MODERATE, LOW | Neigung zu Trendtagen vs. Mean-Reversion |
+| `reasoning` | String (max 200 Chars) | Kurze Begruendung fuer Logging |
+
+### 8.3 Deterministische Validierung durch QuantEngine
+
+Die LLM-Einschaetzungen muessen durch historische Statistik gestuetzt sein. Die QuantEngine berechnet parallel auf Basis derselben historischen Daten quantitative Metriken (z.B. Gap-Fill-Rate, Recovery-Quote nach Flushes, ATR-Verteilung ueber Tageszeiten).
+
+**Bei Widerspruch gilt die quantitative Evidenz.** Beispiel: Wenn das LLM `recovery_tendency = HIGH` einschaetzt, aber die historische V-Recovery-Rate unter 30% liegt, wird das Profil auf `recovery_tendency = LOW` korrigiert.
+
+### 8.4 Verwendung im Tagesverlauf
+
+Das Instrument-Profil wird einmalig in der WARMUP-Phase erstellt und danach nicht mehr aktualisiert. Es fliesst als statischer Kontextblock in jeden Intraday-LLM-Call ein (Bestandteil des System Prompts, siehe Abschnitt 9.1). Die Rules Engine kann Profil-Felder als zusaetzliche Gates verwenden (z.B. `recovery_tendency = LOW` → Setup B (Flush-Reclaim) mit verschaerften Schwellen).
+
+---
+
+## 9. Prompt-Architektur: Dreistufiges Context Window
+
+### 9.1 System Prompt (fest)
 
 - Rollendefinition ("Du bist ein Intraday-Marktanalyst")
 - Regeln (Output-Schema, Confidence-Kalibrierung, verbotene Felder)
 - Instrument-Profil (Name, Sektor, Beta, durchschnittliche Tagesvolatilitaet)
-- Verbotene Outputs: keine Orderdetails (Stueckzahlen, Stop-Level, Limit-Preise)
+- **Instrument-Profil aus Pre-Market-Analyse** (Abschnitt 8): Gap-Verhalten, Recovery-Tendenz, Volatilitaetsprofil -- als statischer Kontextblock
+- **Safety-Contract:** LLM gibt keine numerischen Preise oder Orderdetails aus -- weder im Freitext noch in strukturierten Feldern. Verboten: Stueckzahlen, Stop-Level, Limit-Preise, Entry-Preise, Target-Preise
 
-### 8.2 Kontext-Fenster (dynamisch)
+### 9.2 Kontext-Fenster (dynamisch)
 
 - Komprimierte Kurshistorie (20d Daily + 5d Intraday)
 - Heutiger Tagesplan und Session-Phase
@@ -205,7 +243,7 @@ Das 5-stufige Basis-Regime-Modell (TREND_UP, TREND_DOWN, RANGE_BOUND, HIGH_VOLAT
 - Risk-Budget als kategoriale Klasse (LOW/MED/HIGH), NICHT exakter Kontostand
 - ATR-Decay-Ratio als Kontext fuer Tagesverlaufs-Anpassung
 
-### 8.3 Aktueller Tick (pro Aufruf)
+### 9.3 Aktueller Tick (pro Aufruf)
 
 - Letzte N Bars (Detaildaten) in komprimierter Form
 - Aktuelle Indikatoren (RSI, VWAP, ATR, EMA, ADX)
@@ -213,7 +251,7 @@ Das 5-stufige Basis-Regime-Modell (TREND_UP, TREND_DOWN, RANGE_BOUND, HIGH_VOLAT
 - Uhrzeit und verbleibende Handelszeit
 - Monitor-Events seit letztem Call
 
-### 8.4 Datenkompression fuer Context Window
+### 9.4 Datenkompression fuer Context Window
 
 | Zeitfenster | Granularitaet | Datenpunkte |
 |-------------|--------------|-------------|
@@ -225,7 +263,7 @@ Das 5-stufige Basis-Regime-Modell (TREND_UP, TREND_DOWN, RANGE_BOUND, HIGH_VOLAT
 
 Zusaetzlich vorberechnete Aggregationen: VWAP, kumulatives Volumen-Profil, Intraday-High/Low, aktuelle RSI-Werte auf mehreren Timeframes, ATR-Decay-Ratio, Volume-Ratio.
 
-### 8.5 Datensparsamkeit (Security)
+### 9.5 Datensparsamkeit (Security)
 
 Das LLM erhaelt KEINE:
 - Account-Groesse oder persoenliche Daten
@@ -237,7 +275,7 @@ Risk-Budget wird als kategoriale Klasse (LOW/MED/HIGH) mitgeteilt.
 
 ---
 
-## 9. Anti-Halluzination: Fuenf Verteidigungsschichten (Normativ)
+## 10. Anti-Halluzination: Fuenf Verteidigungsschichten (Normativ)
 
 ### Schicht 1: Schema-Validierung
 
@@ -247,11 +285,11 @@ Jede LLM-Antwort wird gegen das JSON-Schema validiert. Fehlende Felder, falsche 
 
 | Halluzinationstyp | Erkennung | Aktion |
 |-------------------|-----------|--------|
-| `entry_price_zone` weicht > 1.5x ATR(14) vom aktuellen Kurs ab | ATR-relative Pruefung | Verwerfen |
-| `target_price` unrealistisch (> 4x ATR(14) vom Entry) | ATR-relative Pruefung | Target auf 2x ATR begrenzen |
 | `hold_duration_bars` > verbleibende Handelszeit | Vergleich mit MarketClock | Verwerfen oder kuerzen |
 | `regime_confidence` = 1.0 bei offensichtlich unklarem Markt | Quant-Gegencheck | Confidence auf 0.7 deckeln |
 | `opportunity_zones` ausserhalb der heutigen Range + 1x ATR | ATR-erweiterte Range | Verwerfen |
+| `tactic` = BREAKOUT_FOLLOW bei RANGE_BOUND ohne Volumen-Signal | Quant-Gegencheck | Auf WAIT_PULLBACK korrigieren |
+| `urgency_level` = HIGH bei UNCERTAIN-Regime | Konsistenzcheck | Auf LOW korrigieren |
 
 > **ATR-relative Schwellen:** Fixe Prozent-Schwellen (z.B. "1% vom Kurs") verwerfen in hochvolatilen Regimen systematisch valide Setups. Alle Plausibilitaetsschwellen werden daher in ATR-Einheiten ausgedrueckt.
 
@@ -259,17 +297,18 @@ Jede LLM-Antwort wird gegen das JSON-Schema validiert. Fehlende Felder, falsche 
 
 LLM-Output wird gegen sich selbst und den Marktkontext geprueft:
 - `regime = TREND_DOWN` + `opportunity_zone` Typ ENTRY → Inkonsistent (ausser Aggressive Mode aktiv)
-- `regime = UNCERTAIN` + `urgency = HIGH` → Inkonsistent (UNCERTAIN impliziert LOW/MEDIUM urgency)
+- `regime = UNCERTAIN` + `urgency_level = HIGH` → Inkonsistent (UNCERTAIN impliziert LOW urgency)
+- `tactic = BREAKOUT_FOLLOW` + `regime = RANGE_BOUND` ohne Volumen-Signal → Inkonsistent
 - `risk_factors` enthalten "starker Abwaertstrend" + `regime = TREND_UP` → Warnung
 - LLM labelt `regime = TREND_UP`, wenn 10m Confirmation eindeutig DOWN ist → Auto-Override auf CAUTION
 - Confidence darf nicht immer konstant hoch sein → Drift-Alert
 
 ### Schicht 4: Quant-Gegenstimme
 
-Die Quant-Validierung (Scoring-Modell + Hard-Veto-System) dient als unabhaengige Gegenkontrolle:
-- `quant_score >= 0.50` → Trade grundsaetzlich erlaubt
-- Hard-Veto-Checks (z.B. Spread > 0.5%) blockieren unabhaengig vom Gesamtscore
-- Einzelne Checks haben ein Hard-Veto-Recht unabhaengig vom LLM-Output
+Die Quant-Validierung (Gate-Kaskade + Hard-Veto-System) dient als unabhaengige Gegenkontrolle:
+- Jeder Indikator hat eine harte Ja/Nein-Schwelle (Gate). **Alle** Gates muessen bestanden sein fuer Entry-Freigabe
+- Hard-Veto-Gates (z.B. Spread > 0.5%) blockieren unabhaengig von allen anderen Gates
+- Kein gewichteter Score, keine Normalisierung -- reine Gate-Kaskade (Details siehe 03-strategy-logic.md)
 
 ### Schicht 5: Historische Kalibrierung
 
@@ -281,9 +320,9 @@ Nach einer Einlaufphase von mindestens **100 Handelstagen** wird die Kalibrierun
 
 ---
 
-## 10. Circuit Breaker und Quant-Only-Modus (Normativ)
+## 11. Circuit Breaker und Quant-Only-Modus (Normativ)
 
-### 10.1 Eskalationsstufen
+### 11.1 Eskalationsstufen
 
 | Stufe | Schwelle | Reaktion | Recovery |
 |-------|----------|----------|----------|
@@ -292,7 +331,7 @@ Nach einer Einlaufphase von mindestens **100 Handelstagen** wird die Kalibrierun
 | **Trade-Halt** | > 30 Min ohne erfolgreichen LLM-Call | Keine neuen Trades mehr, bestehende Positionen bis EOD managen oder bei naechstem Exit-Signal schliessen | Manueller Reset durch Operator |
 | **Halluzinations-Kaskade** | 3+ verworfene LLM-Outputs in Folge | Quant-Only-Modus fuer Rest des Tages | Naechster Handelstag |
 
-### 10.2 Worst Case: LLM komplett weg
+### 11.2 Worst Case: LLM komplett weg
 
 System schaltet auf Quant-Only:
 - Keine neuen Trades (Entry blockiert)
@@ -302,7 +341,7 @@ System schaltet auf Quant-Only:
 
 ---
 
-## 11. TTL/Freshness-Regeln (Normativ)
+## 12. TTL/Freshness-Regeln (Normativ)
 
 | Aktion | TTL-Anforderung | Begruendung |
 |--------|-----------------|-------------|
@@ -320,7 +359,7 @@ System schaltet auf Quant-Only:
 
 ---
 
-## 12. Anti-LLM-Drift Guardrails (Normativ)
+## 13. Anti-LLM-Drift Guardrails (Normativ)
 
 Drei Mechanismen verhindern, dass das LLM systematisch zu aggressive oder zu passive Parameter liefert:
 
@@ -332,7 +371,7 @@ Drei Mechanismen verhindern, dass das LLM systematisch zu aggressive oder zu pas
 
 ---
 
-## 13. News Security und Input Validation (Normativ)
+## 14. News Security und Input Validation (Normativ)
 
 Externe Textdaten (Nachrichtenartikel, Social-Media-Posts, Analystenkommentare) sind potentielle Angriffsvektoren fuer Prompt Injection. Alle externen Texte werden als **untrusted input** behandelt:
 
@@ -347,9 +386,9 @@ Externe Textdaten (Nachrichtenartikel, Social-Media-Posts, Analystenkommentare) 
 
 ---
 
-## 14. Model Risk Management (Normativ)
+## 15. Model Risk Management (Normativ)
 
-### 14.1 Versionierung
+### 15.1 Versionierung
 
 | Artefakt | Schema | Geloggt in |
 |----------|--------|-----------|
@@ -358,7 +397,7 @@ Externe Textdaten (Nachrichtenartikel, Social-Media-Posts, Analystenkommentare) 
 | `strategy_version` | Semantic Versioning | ConfigSnapshot pro Run |
 | `cost_model_version` | Semantic Versioning | ConfigSnapshot pro Run |
 
-### 14.2 Deterministische LLM-Settings
+### 15.2 Deterministische LLM-Settings
 
 | Setting | Wert | Begruendung |
 |---------|------|-------------|
@@ -367,7 +406,7 @@ Externe Textdaten (Nachrichtenartikel, Social-Media-Posts, Analystenkommentare) 
 | seed | Fester Wert (konfigurierbar) | Reproduzierbare Ergebnisse bei gleichem Input |
 | max_tokens | 2000 | Begrenzt Output-Laenge |
 
-### 14.3 Regression-Gates
+### 15.3 Regression-Gates
 
 Vor Deployment einer neuen Version MUSS:
 - Challenger-Suite (20 Szenarien) durchlaufen
@@ -376,21 +415,21 @@ Vor Deployment einer neuen Version MUSS:
 - Drift Checks: Confidence-Verteilungen, Agreement-Rate
 - Latenz p95 < 5 Sekunden
 
-### 14.4 Evaluation-Suites
+### 15.4 Evaluation-Suites
 
 - **Regressionstests:** 50+ historische Szenarien mit bekanntem Expected-Output. Alle muessen bestehen
 - **Halluzinations-Tests:** 10+ Szenarien mit absichtlich widerspruechlichen Daten. LLM muss UNCERTAIN melden
 - **Schema-Compliance:** 100% der Outputs muessen valides JSON nach Schema sein
 - **Performance-Benchmark:** Latenz p95 < 5 Sekunden
 
-### 14.5 Safety-Contract Tests
+### 15.5 Safety-Contract Tests
 
 Automatisierte Tests stellen sicher, dass LLM:
-- Keine Orderdetails ausgibt (Stueckzahlen, Preise, Stop-Level)
+- Keine numerischen Preise oder Orderdetails ausgibt -- weder im Freitext noch in strukturierten Feldern (Stueckzahlen, Entry-Preise, Target-Preise, Stop-Level, Limit-Preise)
 - Keine verbotenen Felder ausgibt
 - Bei unklaren Situationen UNCERTAIN/CAUTION waehlt (nicht overconfident)
 
-### 14.6 Change Management
+### 15.6 Change Management
 
 1. Aenderung am Prompt/Schema wird als PR erstellt
 2. Paper-Trading-Test (min. 5 Handelstage)
@@ -398,7 +437,7 @@ Automatisierte Tests stellen sicher, dass LLM:
 4. Erst nach Approval: Rollout via Konfigurationsschalter (kein Deployment)
 5. Bei Anomalien: Sofortiger Rollback auf vorherige Version
 
-### 14.7 Monitoring in Produktion
+### 15.7 Monitoring in Produktion
 
 - LLM Timeout Rate
 - Schema Invalid Rate
@@ -411,7 +450,7 @@ Automatisierte Tests stellen sicher, dass LLM:
 
 ---
 
-## 15. LLM-Response-Caching fuer deterministischen Replay (Normativ)
+## 16. LLM-Response-Caching fuer deterministischen Replay (Normativ)
 
 Alle LLM-Responses werden gecacht:
 
@@ -423,7 +462,7 @@ Alle LLM-Responses werden gecacht:
 
 ---
 
-## 16. Optionales Vision-Modul (Ausblick)
+## 17. Optionales Vision-Modul (Ausblick)
 
 Ergaenzend zur zahlenbasierten Analyse ist ein Vision-Modul denkbar, das Chart-Bilder analysiert:
 - **Einsatz:** Vision-Modell erkennt ausschliesslich Pattern-Labels (Triangle, Pennant, Flag, Double-Bottom). Keine Kurslevels, keine Handlungsempfehlungen

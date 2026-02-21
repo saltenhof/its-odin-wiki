@@ -4,6 +4,20 @@
 
 ---
 
+## Begriffshierarchie (Normativ)
+
+Die folgenden Begriffe werden im gesamten Dokument konsistent verwendet:
+
+| Begriff | Definition | Beispiel |
+|---------|-----------|---------|
+| **Trade** | Erste Eroeffnung bis vollstaendige Schliessung einer Position in einem Instrument. Ein Trade kann aus mehreren Tranchen bestehen | Kauf AAPL 100 Stueck → spaeter Kauf 60 Stueck (Add) → Verkauf 80 Stueck → Verkauf 80 Stueck = **ein** Trade |
+| **Cycle** | Ein vollstaendiger Trade im selben Instrument am selben Tag. Cycle 1 = erster Trade, Cycle 2 = Re-Entry nach vollstaendiger Schliessung | Erster AAPL-Trade (Cycle 1) → flat → Cooldown → Re-Entry (Cycle 2) |
+| **Tranche** | Teilstueck innerhalb eines Trades. Entsteht durch gestuften Positionsaufbau (Starter/Add) oder gestufte Gewinnmitnahme (Scale-Out) | Starter-Tranche (40%) + Add-Tranche (60%) = eine Position, ein Trade |
+
+> **Abgrenzung:** Ein **Add** (Aufstocken) innerhalb einer bestehenden Position erzeugt eine neue **Tranche**, aber keinen neuen **Cycle**. Ein neuer Cycle entsteht nur, wenn die Position vollstaendig geschlossen wurde und ein Re-Entry erfolgt.
+
+---
+
 ## 1. Tages-Lifecycle
 
 > **Zeitzone:** Alle Uhrzeiten in **US Eastern Time (ET)**. Die Implementierung MUSS Sommerzeitwechsel korrekt behandeln (Exchange-TZ `America/New_York`). Alle Phasen sind als konfigurierbare Parameter implementiert (Exchange-spezifisch).
@@ -94,7 +108,7 @@ Bei jedem 3m-Bar-Close:
 | 1 | **Hard-Stop-Pruefung** -- Tagesverlust >= 10%? → DAY_STOPPED. Exposure-Limit, Max-Cycles pruefen | Risk |
 | 2 | **Data Quality Gate** -- Bar Completeness, Staleness, Outlier, Crash-Check | Data |
 | 3 | **MarketSnapshot erzeugen** (immutable, MarketClock-Timestamp). Snapshots fuer 1m/3m/10m | Data |
-| 4 | **KPI-Engine** -- Indikatoren berechnen (EMA, RSI, ATR, ADX, VWAP, Bollinger, Volume-Ratio) → IndicatorResult. QuantVote erzeugen (Regime + Intent + Score + Vetos) | Brain/Quant |
+| 4 | **KPI-Engine** -- Indikatoren berechnen (EMA, RSI, ATR, ADX, VWAP, Bollinger, Volume-Ratio) → IndicatorResult. QuantVote erzeugen (Regime + Intent + Gate-Ergebnisse + Vetos) | Brain/Quant |
 | 5 | **LlmVote** aus LlmAnalysisStore lesen (async bereitgestellt, TTL-Check). Falls stale/fehlend: kein Entry moeglich | Brain/LLM |
 | 6 | **Regime-Fusion** -- Quant + LLM + 10m Confirmation + Hysterese (2 konsekutive 3m-Bars fuer Wechsel). Bei Widerspruch: konservativeres Regime | Brain/Arbiter |
 | 7 | **Strategy Rules** -- Setup-FSMs evaluieren, Entry/Exit-Bedingungen pruefen, Pattern-Gates pruefen | Brain/Rules |
@@ -111,7 +125,7 @@ Maximal ein TradeIntent pro Decision-Cycle. Bei Tie-Break: **Exit > Entry**. Tra
 | Ablehnungsgrund | Reaktion | Retry? |
 |-----------------|----------|--------|
 | Quant Hard-Veto (Spread, RSI, EMA) | Intent verwerfen. Kein Retry fuer diesen Trigger-Zyklus | Nein |
-| Quant Soft-Block (Score < Schwelle) | Intent verwerfen. Naechster regulaerer Trigger-Zyklus darf neu evaluieren | Nein (naechster Zyklus) |
+| Quant Gate-Fail (mindestens ein Gate nicht bestanden) | Intent verwerfen. Naechster regulaerer Trigger-Zyklus darf neu evaluieren | Nein (naechster Zyklus) |
 | Risk Gate: Position zu gross | Intent verwerfen. Kein automatisches Downsizing | Nein |
 | Risk Gate: Tages-Budget erschoepft | Intent verwerfen. Keine weiteren Entries heute | Nein (final) |
 | Risk Gate: R/R-Ratio unzureichend | Intent verwerfen. Naechster Zyklus darf neu evaluieren | Nein (naechster Zyklus) |
@@ -170,27 +184,50 @@ Entry ist blockiert, wenn:
 
 Ein frischer LLM-Output mit `regimeConfidence > 0` MUSS vorliegen. Ohne frischen LLM-Output ist `regimeConfidence = 0.0` und Entries sind blockiert. Das LLM **triggert** keinen Entry -- es liefert ein notwendiges Input-Feature.
 
-| Regime-Confidence | Quant-Score-Schwelle |
-|-------------------|---------------------|
+| Regime-Confidence | Quant-Gate-Anforderung |
+|-------------------|------------------------|
 | < 0.5 | Kein Entry (Regime = UNCERTAIN) |
-| 0.5 -- 0.7 | >= 0.70 (erhoehte Quant-Huerde) |
-| > 0.7 | >= 0.50 (Standard-Huerde) |
+| 0.5 -- 0.7 | Alle Gates bestanden + verschaerfte Schwellen (siehe Gate-Kaskade) |
+| > 0.7 | Alle Gates bestanden (Standard-Schwellen) |
 
-### 4.3 Entry-Bedingungen pro Regime
+### 4.3 Quant Gate-Kaskade (Normativ)
 
-| Regime | Entry-Bedingung | Quant-Anforderung |
-|--------|----------------|-------------------|
-| **TREND_UP** | EMA(9) > EMA(21) AND RSI < 70 AND Preis <= VWAP + 0.5x ATR(14) | `quant_score >= threshold` (siehe Confidence-Tabelle) |
+Die Quant-Validierung verwendet **keine gewichteten Scores**. Stattdessen wird eine harte Gate-Kaskade eingesetzt: Jeder Indikator hat eine Ja/Nein-Schwelle (Gate). **Alle** Gates muessen bestanden sein fuer Entry-Freigabe.
+
+| Gate | Indikator | Standard-Schwelle | Verschaerfte Schwelle (Confidence 0.5--0.7) | Veto-Typ |
+|------|-----------|-------------------|---------------------------------------------|----------|
+| **Spread-Gate** | Bid-Ask Spread | < 0.5% | < 0.3% | Hard-Veto |
+| **Volume-Gate** | Volume-Ratio (aktuell vs. SMA) | > 0.8x | > 1.0x | Hard-Veto |
+| **RSI-Gate** | RSI(14) | 25 < RSI < 70 | 30 < RSI < 65 | Hard-Veto |
+| **EMA-Trend-Gate** | EMA(9) vs. EMA(21) | EMA(9) > EMA(21) (Long) | Zusaetzlich EMA(21) > EMA(50) | Soft-Gate |
+| **VWAP-Gate** | Preis relativ zu VWAP | Preis <= VWAP + 0.5x ATR(14) | Preis <= VWAP + 0.3x ATR(14) | Soft-Gate |
+| **ATR-Gate** | ATR vs. Daily-ATR | ATR(14) > 0.5x Daily-ATR | ATR(14) > 0.6x Daily-ATR | Soft-Gate |
+| **ADX-Gate** | ADX(14) | > 15 (Trend vorhanden) | > 20 (staerkerer Trend) | Soft-Gate |
+
+**Hard-Veto vs. Soft-Gate:**
+
+- **Hard-Veto:** Blockiert Entry sofort und endgueltig fuer diesen Decision-Cycle. Kein Override moeglich
+- **Soft-Gate:** Muss bestanden sein, aber die Schwelle wird durch Regime-Confidence moduliert
+
+**Kein gewichteter Score, keine Normalisierung.** Die Gate-Schwellen werden initial konservativ gesetzt und durch Backtests kalibriert. Jedes Gate liefert PASS oder FAIL -- es gibt keine Teilergebnisse.
+
+> **Abgrenzung zum bisherigen Modell:** Der fruehere gewichtete `quant_score` (0.0--1.0) wurde durch die Gate-Kaskade ersetzt. Vorteil: Transparenz (jedes Gate hat einen klaren Grund fuer PASS/FAIL), keine versteckten Kompensationseffekte (ein schlechter Indikator kann nicht durch einen guten "ausgeglichen" werden).
+
+### 4.4 Entry-Bedingungen pro Regime
+
+| Regime | Entry-Bedingung | Quant-Gate-Anforderung |
+|--------|----------------|------------------------|
+| **TREND_UP** | EMA(9) > EMA(21) AND RSI < 70 AND Preis <= VWAP + 0.5x ATR(14) | Alle Gates bestanden (siehe Gate-Kaskade) |
 | **TREND_DOWN** | **Default: Kein Entry.** Aggressive Mode (Config OFF): RSI < 25, Volume > 2x SMA, halbe Position, max. 2 Trades/Tag | Volumen-Spike + enge Stops (1.0x ATR statt 2.2x) |
-| **RANGE_BOUND** | RSI < 40 AND Preis nahe VWAP-Support | `quant_score >= threshold` |
+| **RANGE_BOUND** | RSI < 40 AND Preis nahe VWAP-Support | Alle Gates bestanden (siehe Gate-Kaskade) |
 | **HIGH_VOLATILITY** | Volume > 1.5x SMA AND Spread-Proxy < 0.3% | Sehr selektiv, halbe Position |
 | **UNCERTAIN** | **Kein Entry** | -- |
 | **OPENING_VOLATILITY** | **Kein Entry** (Diagnose-Phase) | -- |
 | **EXHAUSTION_RISK** | **Kein Entry** (spaet im Trend) | -- |
-| **RECOVERY** | Konservativer Entry (nach Flush/Korrektur) | Erhoehte Schwellen |
+| **RECOVERY** | Konservativer Entry (nach Flush/Korrektur) | Verschaerfte Gate-Schwellen |
 | **BREAKOUT_ATTEMPT** | Entry bei bestaetiger Range-Expansion + Volume | 10m Confirmation nicht dagegen |
 
-### 4.4 Dual-Key-Anforderung fuer Entry
+### 4.5 Dual-Key-Anforderung fuer Entry
 
 Entry MUSS erfuellt sein (Symmetric Hybrid Protocol):
 
@@ -314,9 +351,9 @@ Alle Setups existieren als FSM, die auf 3m-Entscheidungslogik basiert und 1m-Ere
 
 **Distribution-Warnsignale:** Untere Trendlinie wird weich (Tiefs nicht verteidigt), Erholungen schwaecher, Close unter unterer Linie + unter MAs = Regimewechsel.
 
-### 6.4 Setup D -- Re-Entry / Aufstocken nach Korrektur
+### 6.4 Setup D -- Re-Entry (neuer Cycle) nach Korrektur
 
-**Ziel:** Nach vorherigem Exit oder nach fruehm Downtrend spaeteren Trendwechsel handeln.
+**Ziel:** Nach vollstaendigem Exit (Cycle abgeschlossen) oder nach fruehm Downtrend spaeteren Trendwechsel handeln.
 
 **States:**
 
@@ -333,16 +370,16 @@ Alle Setups existieren als FSM, die auf 3m-Entscheidungslogik basiert und 1m-Ere
 
 ---
 
-## 7. Position Building: Starter + Add
+## 7. Position Building: Tranchen (Starter + Add)
 
-Fuer Setup B (und analog fuer andere Setups) wird eine gestufte Positionsaufbau-Strategie verwendet:
+Fuer Setup B (und analog fuer andere Setups) wird eine gestufte Positionsaufbau-Strategie ueber **Tranchen** verwendet. Jede Tranche hat eigene Entry-Parameter, aber alle Tranchen gehoeren zum selben Trade.
 
-| Phase | Anteil | Zeitpunkt | Stop |
-|-------|--------|-----------|------|
-| **Starter** | ~40% der Zielgroesse | RECLAIM-State (erste Bestaetigung) | Unter Flush-Low (weit) |
-| **Add** | ~60% der Zielgroesse | RUN-State bestaetigt (Higher-Low, EMA-Kreuzung) | Unter letztes Higher-Low (enger) |
+| Tranche | Anteil | Zeitpunkt | Stop |
+|---------|--------|-----------|------|
+| **Starter-Tranche** | ~40% der Zielgroesse | RECLAIM-State (erste Bestaetigung) | Unter Flush-Low (weit) |
+| **Add-Tranche** | ~60% der Zielgroesse | RUN-State bestaetigt (Higher-Low, EMA-Kreuzung) | Unter letztes Higher-Low (enger) |
 
-**Gesamtrisiko:** Starter + Add DARF den `max_risk` pro Trade (3% Tageskapital) NICHT ueberschreiten.
+**Gesamtrisiko:** Alle Tranchen eines Trades DUERFEN den `max_risk` pro Trade (3% Tageskapital) NICHT ueberschreiten.
 
 **Pattern-Aktivierung (Normativ):** LLM schlaegt Patterns vor (`patternCandidates` mit Enum + Confidence + Phase), aber State-Machine-Uebergaenge werden ausschliesslich durch KPI-Kriterien getriggert. Mehrere Patterns koennen parallel ueberwacht werden, aber nur ein Pattern darf gleichzeitig eine Position halten.
 
@@ -356,29 +393,29 @@ ODIN unterstuetzt **mehrere vollstaendige Entry/Exit-Zyklen pro Tag** auf demsel
 
 > **Kernthese (Stakeholder-Entscheidung):** ODIN ist KEIN reines Algo-Trading-System. Das LLM MUSS unterstuetzende Entscheidungsgewalt haben -- gebunden an deterministische Leitplanken.
 
-### 8.2 Zyklen-Typen
+### 8.2 Trade-Typen pro Cycle
 
-| Zyklus-Typ | Timing | Positionsgroesse | Besonderheit |
-|------------|--------|-----------------|--------------|
-| **Trend-Riding** (Zyklus 1) | Fruehe RTH | Standard | Proaktiver Exit beim Plateau via TACTICAL_EXIT. Exit bei Exhaustion statt Warten auf Trailing-Stop |
-| **Recovery-Trade** (Zyklus 2+) | Nach Korrektur (typ. 30--90 Min) | Reduziert (Default 60%) | Konservativere Entry-Schwellen, engerer initialer Stop |
-| **Scalp/Quick-Trade** | Klar kurzfristig | Klein, enge Stops | Explizit als spaeteres Feature (P4d) |
+| Trade-Typ | Cycle | Timing | Positionsgroesse | Besonderheit |
+|-----------|-------|--------|-----------------|--------------|
+| **Trend-Riding** | Cycle 1 | Fruehe RTH | Standard | Proaktiver Exit beim Plateau via TACTICAL_EXIT. Exit bei Exhaustion statt Warten auf Trailing-Stop |
+| **Recovery-Trade** | Cycle 2+ | Nach Korrektur (typ. 30--90 Min) | Reduziert (Default 60%) | Konservativere Entry-Schwellen, engerer initialer Stop |
+| **Scalp/Quick-Trade** | Beliebig | Klar kurzfristig | Klein, enge Stops | Explizit als spaeteres Feature (P4d) |
 
-### 8.3 Re-Entry vs. Scale-Up (Aufstocken)
+### 8.3 Re-Entry (neuer Cycle) vs. Aufstocken (neue Tranche)
 
-| Merkmal | Re-Entry | Aufstocken (Scale-Up) |
-|---------|----------|----------------------|
+| Merkmal | Re-Entry (neuer Cycle) | Aufstocken (neue Tranche) |
+|---------|------------------------|---------------------------|
 | Position zwischen Zyklen | 0 (komplett flat) | > 0 (Runner gehalten) |
 | Pipeline-State | FLAT_INTRADAY | MANAGING_TRADE (unveraendert) |
 | Trigger | `entry_timing_bias = ALLOW_RE_ENTRY` | LLM-Recovery-Signal + KPI bei bestehender Position |
-| Semantik | Neuer Trade | Vergroesserung einer bestehenden Position |
+| Semantik | Neuer Trade (neuer Cycle) | Vergroesserung einer bestehenden Position (neue Tranche, selber Trade) |
 
 **Scale-Up OMS-Implikationen:**
 
 - Aufgestockter Teil hat eigenen Entry-Preis und Entry-ATR (zum Zeitpunkt des Aufstockens)
 - Position besteht aus Tranchen mit unterschiedlichen Entry-Parametern
 - P&L-Berechnung pro Tranche
-- Cycle-Counter zaehlt Aufstocken als eigenen Zyklus
+- Aufstocken erzeugt eine neue Tranche, aber **keinen** neuen Cycle (Position war nie flat)
 
 ### 8.4 Guardrails fuer Multi-Cycle
 
@@ -390,7 +427,7 @@ ODIN unterstuetzt **mehrere vollstaendige Entry/Exit-Zyklen pro Tag** auf demsel
 | Budget-Gate | Verbleibendes Risk-Budget MUSS minimale Position erlauben | Keine Micro-Entries |
 | LLM-Pflicht | Re-Entry nur mit frischem LLM-Assessment (`ALLOW_RE_ENTRY`) | Kein algorithmischer Re-Entry ohne LLM-Kontext |
 | Zeitfenster | Kein Re-Entry nach 15:15 ET (30 Min vor FORCED_CLOSE) | **Strenger als Erst-Entry** (bis 15:30 erlaubt) |
-| Globales Limit | Max. 5 Round-Trip-Trades/Tag global ueber alle Pipelines | Dominiert ueber Per-Pipeline-Limit |
+| Globales Limit | Max. 5 Cycles/Tag global ueber alle Pipelines | Dominiert ueber Per-Pipeline-Limit |
 
 ### 8.5 LLM-Rolle bei Multi-Cycle
 
