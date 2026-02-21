@@ -199,7 +199,142 @@ Basierend auf den Reviews wurden **4 P0-Entscheidungen** (kritische Inkonsistenz
 
 ---
 
+## Phase 2: User Stories und Implementierung (2026-02-21)
+
+### 10. User-Story-Erstellung
+
+Das konsolidierte Konzept (12 Dateien) wurde in **50 User Stories** zerlegt, verteilt ueber 10 Maven-Module und 7 Execution Waves.
+
+**Pfad:** `T:\codebase\its_odin\temp\userstories\`
+
+| Modul | Stories | IDs |
+|-------|---------|-----|
+| odin-api (Foundation) | 6 | ODIN-001 bis ODIN-006 |
+| odin-data | 3 | ODIN-007 bis ODIN-009 |
+| odin-brain | 10 | ODIN-010 bis ODIN-019 |
+| odin-execution | 5 | ODIN-020 bis ODIN-024 |
+| odin-core | 6 | ODIN-025 bis ODIN-030 |
+| odin-audit | 2 | ODIN-031, ODIN-032 |
+| odin-backtest | 4 | ODIN-033 bis ODIN-036 |
+| odin-app | 3 | ODIN-037 bis ODIN-039 |
+| odin-frontend | 4 | ODIN-040 bis ODIN-043 |
+| odin-persistence | 2 | ODIN-044, ODIN-045 |
+| **Phase 2** | 5 | ODIN-046 bis ODIN-050 |
+
+**Groessenverteilung:** 14 S, 21 M, 12 L, 3 XL
+**Kritischer Pfad:** ODIN-001 → ODIN-002 → ODIN-017 → ODIN-019 (~12.5 Tage)
+**Execution Plan:** `T:\codebase\its_odin\temp\userstories\EXECUTION-PLAN.md`
+
+### 11. User-Story-Spezifikation im Wiki
+
+Eine verbindliche, generische Spezifikation fuer alle User Stories wurde erstellt und im Wiki verankert:
+
+**Pfad:** `docs/meta/user-story-specification.md`
+
+Enthaelt:
+- Story-Struktur und Namenskonventionen
+- Vollstaendige Definition of Done (8 Bereiche: 2.1 Code-Qualitaet bis 2.8 Abschluss)
+- Drei-dimensionales Gemini-Review (Code-Bugs, Konzepttreue, Praxis-Gaps)
+- ChatGPT-Test-Sparring-Pflicht (Grenzfaelle, Edge Cases)
+- Integrationstests mit realen Implementierungen (nicht alles gemockt)
+- Embedded Postgres/Zonky fuer DB-Stories
+- Live-aktualisierte Protokolldatei (protocol.md)
+- **Agent-Execution-Regeln** (Abschnitt 7 — siehe unten)
+
+### 12. Erste Implementierungswelle (Wave 0 + Wave 1 Teilmenge)
+
+**Umgesetzt:** 7 Stories durch 3 parallele Agents
+
+| Agent | Stories | Ergebnis |
+|-------|---------|----------|
+| Agent 1 | ODIN-001, 003, 004, 005, 006 (5× odin-api) | Code + 71 Unit-Tests committed |
+| Agent 2 | ODIN-044, 045 (2× odin-persistence) | Code + 32 Unit-Tests + 20 Integrationstests (Zonky) committed |
+| Agent 3 | ODIN-008 (1× odin-data) | Code + 38 Unit-Tests + 4 Integrationstests committed |
+
+**Alle 7 Stories committed und gepusht** auf `its-odin-backend/main`.
+
+### 13. QS-Gate: Alle 7 Stories durchgefallen
+
+Nach der Implementierung wurden **dedizierte QS-Agents pro Story** eingesetzt. Ergebnis: **Alle 7 Stories NICHT BESTANDEN.**
+
+#### Systematische Fehler (alle Stories betroffen)
+
+| Problem | Betroffene Stories |
+|---------|-------------------|
+| **ChatGPT-Sparring nicht durchgefuehrt** | Alle 7 |
+| **Integrationstests fehlen oder nicht im Build** | 001, 003, 004, 005, 006 (komplett fehlend), 008 (Failsafe-Plugin fehlt) |
+| **Gemini-Review unvollstaendig** (Dimension 3 fehlt) | 001, 003, 004, 005, 006 |
+
+#### Story-spezifische Findings
+
+| Story | Finding | Schwere |
+|-------|---------|---------|
+| ODIN-004 | `DEGRADED_EXECUTION` als 5. Mode fehlt (Konzept 11-edge-cases.md Abschnitt 6.1) | Bug |
+| ODIN-005 | `runId`-Nullable-Entscheidung und `MonitorEventListener`-Port-Entscheidung fehlen | Dokumentation |
+| ODIN-006 | `totalCyclesCompleted` im GlobalRiskManager wird nie inkrementiert | Bug |
+| ODIN-008 | Power-Hour Default 60min statt 30min laut Konzept (03-strategy-logic.md: 15:15-15:45) | Konzepttreue |
+| ODIN-008 | Failsafe-Plugin fehlt in odin-data pom.xml (Integrationstests laufen nicht im Build) | Build |
+| ODIN-045 | `HASH_HEX_LENGTH` Konstante steht zwischen Instanzfeldern statt am Klassenanfang | Minor |
+
+#### Qualitaetsranking der Agents
+
+1. **Agent 2** (Persistence, 2 Stories) — Beste Qualitaet: Nur ChatGPT fehlte, Integrationstests + Zonky + Gemini 3D alles vorhanden
+2. **Agent 3** (Session Boundaries, 1 Story) — Gut, aber Failsafe vergessen + Konzept-Abweichung
+3. **Agent 1** (API Models, 5 Stories) — Code und Unit-Tests gut, aber 3 Prozessschritte systematisch uebersprungen
+
+### 14. Lesson Learned: Context-Compaction zerstoert DoD-Compliance
+
+**Ursache:** Agent 1 hatte 5 Stories in einem Kontext. Mit jeder Aktion wuchs der Kontext, Context-Compaction loeschte Teile der Instruktion, und die "weichen" DoD-Schritte (Integrationstests, ChatGPT-Sparring, Gemini Dim 3) wurden systematisch uebersprungen.
+
+**Neue verbindliche Regeln** (im Wiki verankert unter `docs/meta/user-story-specification.md`, Abschnitt 7):
+
+| Regel | Beschreibung |
+|-------|-------------|
+| **7.1 Eine Story = Ein Agent** | Nie mehrere Stories in einem Agent buendeln. Jeder Agent erhaelt frischen Kontext mit vollstaendiger Instruktion |
+| **7.2 Fail-Fast** | Wenn ein DoD-Schritt blockiert ist (z.B. ChatGPT nicht erreichbar): sofort abbrechen, Fehler melden — nicht ueberspringen |
+| **7.3 QS-Gate** | Nach jedem Implementierungs-Agent ein dedizierter QS-Agent pro Story |
+| **7.4 Prompt-Struktur** | 6 Pflichtbestandteile: story.md, Spezifikation, CLAUDE.md, Konzeptdateien, Guardrails, explizite DoD-Anweisung |
+| **7.5 Parallelisierung** | Verschiedene Module parallel, gleiches Modul sequenziell oder Worktree |
+
+### 15. ChatGPT-Pool: Funktionstest bestanden
+
+Der ChatGPT-Pool wurde mit 12 zufaelligen Java-Dateien aus odin-api getestet. Ergebnis:
+- Pool funktioniert (Acquire → Send → Release)
+- Antwortzeit: ~140 Sekunden fuer 12 Dateien
+- ChatGPT lieferte ausfuehrliches Review (Code-Qualitaet, Immutability, Contracts, fachliche Auffaelligkeiten)
+- **Die Agents haetten ChatGPT nutzen koennen — sie haben es nur nicht getan**
+
+---
+
 ## Aktueller Working State
+
+### Naechste Schritte
+
+**Schritt 1: Nacharbeit der 7 bestehenden Stories** (Remediation)
+
+Fuer jede der 7 Stories wird ein **neuer, dedizierter Agent** gestartet, der:
+1. Die bestehende Implementierung vorfindet (Code ist committed)
+2. Den QS-Bericht (`qa-report.md`) als Maengelliste liest
+3. Die fehlenden DoD-Schritte nachholt:
+   - ChatGPT-Sparring fuer Test-Edge-Cases einholen und umsetzen
+   - Fehlende Integrationstests schreiben
+   - Fehlende Gemini-Review-Dimensionen nachholen
+   - Protocol.md vervollstaendigen
+4. Story-spezifische Bugs fixt (ODIN-004, 005, 006, 008, 045)
+5. Erneut committet und pusht
+
+**Schritt 2: Weitere Stories aus Wave 0 + Wave 1** (neue Implementierung)
+
+Nach erfolgreicher Remediation werden die naechsten Stories umgesetzt — strikt ein Agent pro Story:
+- ODIN-002 (LLM Tactical Schema, abhaengig von ODIN-001) — API-Foundation
+- ODIN-009 (Pattern Feature Recognition) — odin-data, keine Abhaengigkeiten
+- ODIN-015 (Exhaustion Detection) — odin-brain, keine Abhaengigkeiten
+- ODIN-020 (Repricing Policy) — odin-execution, keine Abhaengigkeiten
+- Weitere Wave-1-Stories ohne Abhaengigkeiten
+
+**Schritt 3: QS-Gate pro Story, dann naechste Wave**
+
+Jede neue Story durchlaeuft den vollstaendigen Zyklus: Implementierung → QS-Pruefung → ggf. Nacharbeit → Abnahme.
 
 ### Dateistruktur
 
@@ -219,19 +354,39 @@ docs/concept/
 ├── 11-edge-cases.md            ← 34 Edge Cases, Degradation Modes, Crash-Recovery (V1 vs. Zielbild)
 ├── WORKING-STATE.md            ← Diese Datei
 └── archiv/                     ← Alle 10 Quelldokumente + beide Konsolidierungsversionen
+
+docs/meta/
+├── user-story-specification.md ← Verbindliche DoD + Agent-Execution-Regeln (Abschnitt 7)
+├── playbook.md                 ← Architekturkonzept-Playbook
+├── working-state.md            ← Meta Working State
+└── concept-changelog.md        ← Aenderungslog
+
+temp/userstories/
+├── EXECUTION-PLAN.md           ← 50 Stories, 7 Waves, Abhaengigkeitsgraph
+├── ODIN-001_api-subregime-model/ bis ODIN-050_PHASE2-advanced-crash-recovery/
+│   ├── story.md                ← Story-Definition
+│   ├── protocol.md             ← Protokolldatei (ggf. noch unvollstaendig)
+│   └── qa-report.md            ← QS-Bericht (fuer bereits gepruefte Stories)
 ```
 
 ### Git-Status
 
-- Letzter Commit der Konsolidierung: `237c4b4`
-- Review-Einarbeitung: `dfd22ac`, `ff01709`, `59da165`, `3d3db4e` (4 parallele Agents)
-- Nachkorrekturen (verwaiste Referenzen): ausstehend (wird mit diesem WORKING-STATE committed)
-- Wiki-Repo: `T:\codebase\its_odin\its-odin-wiki`
-- mkdocs build erfolgreich
+**Wiki-Repo** (`its-odin-wiki`):
+- Konzeptkonsolidierung: `237c4b4` bis `3d3db4e`
+- User-Story-Spezifikation: `0ce5db3`
+- Agent-Execution-Regeln: `171f936`
+
+**Backend-Repo** (`its-odin-backend`):
+- Wave 0 odin-api (ODIN-001,003,004,005,006): `d225a82`
+- Wave 0 persistence (ODIN-044,045): committed (nach d225a82)
+- Wave 1 session boundaries (ODIN-008): committed (nach persistence)
+- **Status:** Code ist committed aber QS nicht bestanden — Nacharbeit steht aus
 
 ### Offene Punkte
 
-**Keine offenen Punkte.** Alle P0- und P1-Findings aus dem Gemini/ChatGPT-Review sind eingearbeitet und verifiziert.
+1. **Remediation der 7 durchgefallenen Stories** — ChatGPT-Sparring, Integrationstests, Gemini Dim 3, story-spezifische Bugs
+2. **Wave 1 + Wave 2 Stories** — Umsetzung gemaess Execution Plan, strikt ein Agent pro Story
+3. **ChatGPT-Pool Timing** — Erster Versuch lieferte leere Antwort (Pool antwortete bevor ChatGPT fertig war). Zweiter Versuch funktionierte. Ggf. Timeout-Konfiguration des Pool-Service pruefen
 
 ### Stakeholder-Entscheidungen (bindend, muessen erhalten bleiben)
 
@@ -244,13 +399,16 @@ docs/concept/
 - Runner-Trail bleibt, Profit-Protection als Floor
 - TRAIL_ONLY als OMS-Override
 - Alte Backtests loeschen (keine Event-Logs, unbrauchbar)
-- **Neu:** LLM liefert keine Preise — OMS bestimmt Entry-Preis deterministisch aus Struktur-Levels
-- **Neu:** Trade/Cycle/Tranche-Hierarchie: Aufstocken = Tranche, nicht Cycle
-- **Neu:** Datenverfuegbarkeit konfigurationsabhaengig (OHLCV_ONLY / BASIC_QUOTES / L2_DEPTH)
-- **Neu:** Gate-Kaskade statt gewichtetem Quant-Score
-- **Neu:** V1 nur US-Markt (NYSE, NASDAQ)
-- **Neu:** Pre-Market Instrument Profiling durch LLM in WARMUP-Phase
-- **Neu:** Instrument-Selektion extern durch Operator (kein Universe Ingestion Gate)
+- LLM liefert keine Preise — OMS bestimmt Entry-Preis deterministisch aus Struktur-Levels
+- Trade/Cycle/Tranche-Hierarchie: Aufstocken = Tranche, nicht Cycle
+- Datenverfuegbarkeit konfigurationsabhaengig (OHLCV_ONLY / BASIC_QUOTES / L2_DEPTH)
+- Gate-Kaskade statt gewichtetem Quant-Score
+- V1 nur US-Markt (NYSE, NASDAQ)
+- Pre-Market Instrument Profiling durch LLM in WARMUP-Phase
+- Instrument-Selektion extern durch Operator (kein Universe Ingestion Gate)
+- **Neu:** Eine Story = Ein Agent (Context-Compaction-Regel)
+- **Neu:** Fail-Fast bei blockierten DoD-Schritten
+- **Neu:** QS-Gate nach jedem Implementierungs-Agent
 
 ### Wichtige Architektur-Referenzen
 
@@ -258,3 +416,5 @@ docs/concept/
 - Frontend: `T:\codebase\its_odin\its-odin-ui` (React, TypeScript, Vite)
 - Wiki: `T:\codebase\its_odin\its-odin-wiki` (MkDocs Material)
 - CLAUDE.md: `T:\codebase\its_odin\CLAUDE.md` (vollstaendige Projekt-Konventionen)
+- User-Story-Spezifikation: `T:\codebase\its_odin\its-odin-wiki\docs\meta\user-story-specification.md`
+- Execution Plan: `T:\codebase\its_odin\temp\userstories\EXECUTION-PLAN.md`
