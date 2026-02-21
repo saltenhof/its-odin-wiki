@@ -1,5 +1,7 @@
 # 03 -- Strategielogik, FSM, Decision Loop, Setups, Multi-Cycle-Day
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 4--5: Tages-Lifecycle, Zustandsmaschine; Kap. 7: Deterministic Strategy Rules; Kap. 9: Decision Loop), Master-Konzept v1.1 (Strategielogik, Multi-Cycle-Day, Pattern-State-Machines), Build-Spec v3.0 (Kap. 7: FSM, Kap. 9: Strategy Rules), Strategie-Sparring (Setup-Definitionen A--D, Multi-Cycle-Guardrails, Re-Entry-Regeln), Stakeholder-Feedback (Entry-Cutoffs, Cooling-Off, Pre-Market-Trading)
+
 ---
 
 ## 1. Tages-Lifecycle

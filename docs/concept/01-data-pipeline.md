@@ -1,5 +1,7 @@
 # 01 -- Datenpipeline, Timeframes, Buffers, DQ-Gates, Feature-Katalog
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 12: Datenarchitektur & Subscriptions), Master-Konzept v1.1 (Data Pipeline, Buffer, DQ Gates), Build-Spec v3.0 (Kap. 3: Daten-Layer, Feature-Katalog), Strategie-Sparring (OHLCV-Constraint, L2-Kompromiss, Timeframe-Hierarchie), Stakeholder-Feedback (1m/3m/10m Entscheidung)
+
 ---
 
 ## 1. Datenrestriktion (hart)

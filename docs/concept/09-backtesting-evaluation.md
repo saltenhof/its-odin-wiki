@@ -1,5 +1,7 @@
 # 09 -- Backtesting, Evaluationsdesign, Challenger-Suite, Walk-Forward, Testplan
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 17: Backtesting & Validierungspipeline), Master-Konzept v1.1 (Evaluationsdesign, Challenger Suite), Build-Spec v3.0 (Kap. 13--15: Backtesting, Walk-Forward, Challenger Suite, Bucket-Schwellen; Appendix B: Postgres-Schema; Appendix C: Bucket-Definitionen), Evaluationsdesign (Scenario-/Bucket-Evaluation, Statistische Vergleichsmethodik, Entscheidungslogik), Testplan (Given/When/Then), Strategie-Sparring (Geometric Score, Gate-Kaskade, Indifferenz-Regel, LLM-Kosten-Optimierung)
+
 ---
 
 ## 1. Ziele (Normativ)
@@ -173,9 +175,21 @@ Jeder Handelstag wird in Buckets klassifiziert. Bucket-Labeling erfolgt determin
 
 ### 7.5 Trend Day Grind Up
 
-- 10m Trend stabil (EMA9 > EMA21 durchgehend)
-- Monotone Higher-Highs / Higher-Lows
-- ADX > 25
+Monotoner Aufwaertstrend ueber den gesamten Handelstag mit wenig Pullbacks. Dieser Bucket repraesentiert den idealen Trend-Day-Fall, in dem das System den Trend reiten und den Runner moeglichst lange halten SOLL.
+
+**OHLCV-Kriterien (deterministisch):**
+
+- **Directional Consistency:** `close > open` fuer >= 80% der 3m-Bars waehrend RTH (Mindestens 4 von 5 Bars bullish)
+- **Trend-Staerke:** `ADX(14, 10m) > 25` ueber mindestens 80% der 10m-Bars waehrend RTH
+- **Higher-Highs / Higher-Lows:** Auf 10m-Ebene monotone Folge von Higher-Highs UND Higher-Lows (maximal 1 Violation erlaubt)
+- **EMA-Alignment:** `EMA(9) > EMA(21)` auf 10m-Ebene durchgehend (keine Kreuzung waehrend RTH)
+- **Close nahe HOD:** `Close >= HOD - 0.3 x ATR(14, 3m)` (Tagesschluss nahe am Tageshoch, kein spaeter Giveback)
+- **Kein spaeter Dump:** Letzte 60 Minuten Return >= -0.25 x ATR(14, 10m) (kein signifikanter Ruecksetzer zum Schluss)
+
+**Abgrenzung zu anderen Buckets:**
+
+- Unterschied zu Parabolic+Plateau+Fade: Kein fruehes HOD, kein Plateau, kein Giveback
+- Unterschied zu Compression→Breakout: Kein Kompressionsmuster, sondern stetiger Anstieg von Anfang an
 
 ### 7.6 Halt/Resume Proxy
 

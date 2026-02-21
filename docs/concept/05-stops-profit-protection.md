@@ -1,5 +1,7 @@
 # 05 -- Stops, Trailing, Profit Protection, Exit-Priorisierung, Scaling-Out
 
+> **Quellen:** Master-Konzept v1.1 (Trailing Stop & Profit Protection, R-basierte Stufentabelle), Build-Spec v3.0 (Kap. 10: Stops, Trail-Mechanik, Exhaustion-Detection), Strategie-Sparring (ATR-Freeze 2.2x, Highwater-Mark, Runner-Trail, TRAIL_ONLY, Profit-Protection als Floor), Stakeholder-Feedback 1+2 (Trailing-Stop = Fallnetz, keine statischen Pauschalregeln)
+
 ---
 
 ## 1. Grundprinzipien (Stakeholder-Entscheidungen)

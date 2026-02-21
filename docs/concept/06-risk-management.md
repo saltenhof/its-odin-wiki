@@ -1,5 +1,7 @@
 # 06 -- Risk Management, Position Sizing, Kill-Switch, Crash-Recovery, Security
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 10: Risikomanagement & Guardrails; Kap. 19: Security & Isolation; Kap. 20: Operationelle Sicherheit), Master-Konzept v1.1 (Risk Management, Kill-Switch, Crash-Recovery), Build-Spec v3.0 (Kap. 10: Risk, Sizing, Guardrails; Kap. 15: Security), Strategie-Sparring (Position Sizing, Fixed Fractional Risk, Degradation Modes)
+
 ---
 
 ## 1. Drei Verteidigungslinien (Normativ)

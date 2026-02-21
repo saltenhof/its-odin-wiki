@@ -10,7 +10,7 @@ Vollautomatischer Intraday-Trading-Agent fuer Aktien (US, Europa). Kombiniert LL
 
 | Bereich | Inhalt |
 |---------|--------|
-| [Fachkonzept](concept/intraday-agent-concept.md) | Was ODIN fachlich tut — Strategielogik, Entry/Exit, Regime, Risk |
+| [Fachkonzept](concept/00-overview.md) | Was ODIN fachlich tut — Strategielogik, Entry/Exit, Regime, Risk |
 | [Architektur](architecture/index.md) | Systemuebersicht (Kap 0) — uebergreifend |
 | [Backend](backend/index.md) | Architektur (Kap 1–8, 10), Guardrails |
 | [Frontend](frontend/index.md) | Architektur (Kap 9), Guardrails, Requirements |

@@ -1,5 +1,7 @@
 # 04 -- LLM-Integration: Tactical Parameter Controller, Schema, Safety, Drift
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 6: LLM-Integration & Prompt-Architektur; Kap. 11: Anti-Halluzination), Master-Konzept v1.1 (LLM-Integration, Tactical Parameter Controller), Build-Spec v3.0 (Kap. 12: LLM-Schema, Prompt-Architektur, Anti-Halluzination, Circuit Breaker), Strategie-Sparring (Bounded Enums, TTL-Regeln, Drift-Guardrails), Stakeholder-Feedback (Provider-Entscheidung Claude/OpenAI, Vision-Modul-Priorisierung)
+
 ---
 
 ## 1. Architekturprinzip (Stakeholder-Entscheidung)

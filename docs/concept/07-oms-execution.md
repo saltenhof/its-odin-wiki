@@ -1,5 +1,7 @@
 # 07 -- OMS, Execution Policy, Order-Management, Fill-Handling
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 15: Execution Policy), Master-Konzept v1.1 (OMS, Multi-Tranchen, Stop-Nachfuehrung, Fill-Handling), Build-Spec v3.0 (Kap. 11: Execution/OMS, OHLCV-basierte Execution Policy), Strategie-Sparring (Repricing-Policy, Market-Order-Policy, L2-Execution-Enhancement, TRAIL_ONLY Override)
+
 ---
 
 ## 1. Grundprinzip (Normativ)

@@ -1,5 +1,7 @@
 # 11 -- Edge Cases, Failure Modes, Degradation
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 11: Anti-Halluzination; Kap. 16: News Security; Kap. 21: Edge Cases & Failure Modes), Master-Konzept v1.1 (Edge Cases, Degradation Modes), Build-Spec v3.0 (Kap. 16: Edge Cases; Kap. 8.8: Anti-Halluzination), Strategie-Sparring (Degradation-Kaskade, Challenger-Suite-Abdeckung, News Security), Stakeholder-Feedback (Fail-Safe-Prinzip, Kill-Switch-Ownership)
+
 ---
 
 ## 1. Grundprinzip (Normativ)

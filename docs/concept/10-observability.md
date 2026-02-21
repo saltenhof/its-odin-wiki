@@ -1,5 +1,7 @@
 # 10 -- Observability, Monitoring, Logging, Audit, Dashboard, Alerting
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 22: Monitoring & Logging), Master-Konzept v1.1 (Frontend, Observability, Audit), Build-Spec v3.0 (Kap. 12: Observability, Audit, Replay; Kap. 17: Monitoring), Strategie-Sparring (SSE/REST-Kommunikation, Alert-Routing, Runbooks), Stakeholder-Feedback (Chart-Farben, Dashboard-Komponenten, SLOs)
+
 ---
 
 ## 1. Grundprinzip (Normativ)

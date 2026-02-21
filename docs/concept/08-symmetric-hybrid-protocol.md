@@ -1,5 +1,7 @@
 # 08 -- Symmetric Hybrid Protocol, Dual-Key Decisions, Arbiter, Regime-Fusion
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 8: Quantitative Validierungsschicht; Kap. 9: Entscheidungsschleife), Master-Konzept v1.1 (MC-Mode, Tactical Parameter Controller), Build-Spec v3.0 (Kap. 8: Symmetric Hybrid, Dual-Key, Arbiter; Kap. 9: Regime-Fusion; Appendix C: FusionLab), Strategie-Sparring (Reliability-weighted Fusion, Decision-Level-Updates, hierarchisches Pooling, Loss-Cost-Matrix), Stakeholder-Feedback (Konservativitaets-Ranking, Parameter-Fusion)
+
 ---
 
 ## 1. Designprinzip: Duo auf Augenhoehe
@@ -326,3 +328,108 @@ create table if not exists bt_regime_eval (
 | Exit: Hard-Risk vs. Soft-Exit | Hard-Risk immer zuerst, LLM-unabhaengig |
 | Subregime: KPI vs. LLM | Konservativeres Subregime gewinnt |
 | Entry bei niedrigem Confidence | Erhoehte Quant-Score-Schwelle |
+
+---
+
+## 11. JSON-Schema-Referenz (Beispiel-Payloads)
+
+Die folgenden Beispiele zeigen die konzeptionellen JSON-Strukturen fuer die drei zentralen Nachrichten im Symmetric Hybrid Protocol. Die Feldnamen, Typen und Wertebereiche sind normativ; die konkreten Werte sind illustrativ.
+
+### 11.1 QuantOutput (bounded)
+
+```json
+{
+  "quant_regime": "TREND_UP",
+  "quant_regime_confidence": 0.74,
+  "quant_vote": "ALLOW_ENTRY",
+  "quant_vote_confidence": 0.68,
+  "quant_score": 0.62,
+  "hard_veto_flags": [],
+  "features": {
+    "ext_vwap_atr": 0.4,
+    "ema9_gt_ema21": true,
+    "rsi14": 61.2,
+    "adx14": 23.8,
+    "vol_ratio": 1.4,
+    "atr_decay_ratio": 0.55
+  }
+}
+```
+
+**Felder:**
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `quant_regime` | Enum (Regime-Vokabular) | KPI-basiertes Regime-Label |
+| `quant_regime_confidence` | Float [0.0--1.0] | Confidence des KPI-Regimes |
+| `quant_vote` | Enum: `STRONG_ENTRY`, `ALLOW_ENTRY`, `NO_TRADE`, `HOLD`, `EXIT_SOON`, `EXIT_NOW` | Primaere Empfehlung |
+| `quant_vote_confidence` | Float [0.0--1.0] | Confidence des Quant-Votes |
+| `quant_score` | Float [0.0--1.0] | Gewichteter Gesamtscore |
+| `hard_veto_flags` | Set von Enums | Harte Vetos (z.B. `WARMUP_INCOMPLETE`, `DQ_VIOLATION`, `OVERBOUGHT`) |
+| `features` | Object | Berechnete KPI-Features fuer Logging und Nachvollziehbarkeit |
+
+### 11.2 LlmOutput (bounded)
+
+```json
+{
+  "llm_regime": "TREND_UP",
+  "llm_regime_confidence": 0.71,
+  "llm_vote": "ALLOW_ENTRY",
+  "llm_vote_confidence": 0.64,
+  "pattern_candidates": [
+    {"pattern": "SETUP_A_OPENING_CONSOLIDATION", "confidence": 0.66, "phase": "MATURE"}
+  ],
+  "tactical_controls": {
+    "risk_mode": "NORMAL",
+    "trail_mode": "NORMAL",
+    "profit_protection_profile": "STANDARD",
+    "scale_out_profile": "STANDARD",
+    "entry_timing_bias": "WAIT_FOR_PULLBACK",
+    "exit_bias": "HOLD"
+  },
+  "safety_flags": [],
+  "logging_only": {
+    "key_observations": [],
+    "risk_factors": []
+  }
+}
+```
+
+**Felder:**
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `llm_regime` | Enum (Regime-Vokabular) | LLM-diagnostiziertes Regime-Label |
+| `llm_regime_confidence` | Float [0.0--1.0] | Confidence des LLM-Regimes |
+| `llm_vote` | Enum (siehe Abschnitt 4.2) | Primaere Empfehlung inkl. Re-Entry/Safety |
+| `llm_vote_confidence` | Float [0.0--1.0] | Confidence des LLM-Votes |
+| `pattern_candidates` | Array (max. 2) | Erkannte Patterns mit Enum + Confidence + Phase |
+| `tactical_controls` | Object (bounded Enums) | Taktische Steuerungsparameter (alle als Enums) |
+| `safety_flags` | Set von Enums | Safety-Flags (z.B. `CHOP_RISK`, `EXHAUSTION_RISK`) |
+| `logging_only` | Object | Nur fuer Logging, NIE in Entscheidungslogik |
+
+### 11.3 TradeIntent
+
+```json
+{
+  "intent": "ENTRY",
+  "symbol": "XYZ",
+  "time": "2026-02-21T14:33:00Z",
+  "size_profile": "STARTER",
+  "order_policy": "LIMIT_IN_ZONE",
+  "reason_codes": ["SETUP_A_PULLBACK", "TREND_UP_CONFIRMED"],
+  "constraints": {"max_chase_r": 0.2}
+}
+```
+
+**Felder:**
+
+| Feld | Typ | Beschreibung |
+|------|-----|-------------|
+| `intent` | Enum: `NO_ACTION`, `ENTER`, `ADD`, `SCALE_OUT`, `EXIT` | Art der Aktion |
+| `symbol` | String | Instrument-Identifier |
+| `time` | ISO-8601 Timestamp | MarketClock-Zeitstempel der Entscheidung |
+| `size_profile` | Enum: `STARTER`, `ADD`, `FULL` | Positionsgroessen-Profil |
+| `order_policy` | Enum: `LIMIT_IN_ZONE`, `MARKET`, `STOP_LIMIT` | Order-Typ-Empfehlung |
+| `reason_codes` | String[] | Maschinenlesbare Begruendungen (ReasonCode-Taxonomie) |
+| `constraints` | Object | Optionale Einschraenkungen (z.B. max. Chase-Distanz in R) |

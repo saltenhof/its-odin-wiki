@@ -5,6 +5,8 @@
 **Version:** Konsolidiert (Stand: 2026-02-21)
 **Konsolidiert aus:** Fachkonzept v1.5, Strategie-Optimierung-Sparring, Master-Konzept v1.1, Unified Concept v2.1, Build-Spec v3.0, Evaluationsdesign, Testplan, Stakeholder-Feedback 1+2, L2-Kompromiss
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 1--3, 12), Master-Konzept v1.1 (Systemparameter, Designphilosophie, Module), Build-Spec v3.0 (Kap. 1--4), Unified Concept v2.1 (Schichten, Ports), Strategie-Sparring (L2-Kompromiss, OHLCV-Constraint), Stakeholder-Feedback 1+2 (Timeframes, Constraints)
+
 > **Normative Sprache:** MUSS = zwingend erforderlich, DARF NICHT / NIE = verboten, SOLL = dringend empfohlen (Abweichung nur mit dokumentierter Begruendung), KANN = optional.
 
 ---

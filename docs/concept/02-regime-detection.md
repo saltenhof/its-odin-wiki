@@ -1,5 +1,7 @@
 # 02 -- Regime-Erkennung, Subregimes, Regime-Fusion, FusionLab
 
+> **Quellen:** Fachkonzept v1.5 (Kap. 13: Intraday Regime Detection), Master-Konzept v1.1 (KPI-primaere Regime-Bestimmung, Konservativitaets-Ranking), Build-Spec v3.0 (Kap. 9: Unified Hybrid, Reliability-weighted Fusion, Ground-Truth-Labeling, FusionLab), Strategie-Sparring (Cold-Start-Policy, Decision-Level-Updates, hierarchisches Pooling), Stakeholder-Feedback (Regime-Hysterese, Subregimes)
+
 ---
 
 ## 1. Regime-Modell (5 Klassen)
@@ -289,3 +291,38 @@ Nach einer Einlaufphase von mindestens **100 Handelstagen** wird die Kalibrierun
 - **Bootstrapping-Methode:** Aus den gesammelten Daten werden per Resampling Konfidenzintervalle fuer die Kalibrierungskurve berechnet
 - Systematische Ueber-/Unterschaetzung fuehrt zur Anpassung der Schwellenwerte in der Rules Engine
 - Die Kalibrierungskurve wird nach 100 Handelstagen erstmals berechnet und danach taeglich rollierend aktualisiert
+
+---
+
+## 11. Cold-Start-Policy (Normativ)
+
+Das System durchlaeuft nach Erstinbetriebnahme (oder nach einem Reset der Kalibrierungsdaten) eine **Cold-Start-Phase**, in der die Reliability-Kalibrierung noch nicht ausreichend belastbar ist. Waehrend dieser Phase gelten besondere Regeln.
+
+### 11.1 Grundregel
+
+Solange die Reliability-/Fusion-Kalibrierung nicht ausreichend ist, laeuft das System im **MC-Mode (KPI-primaer)** als Default. Das LLM wird als Tactical Parameter Controller (bounded Enums) verwendet, hat aber keinen Einfluss auf die Regime-Fusion. Regime-Bestimmung ist rein KPI-basiert mit konservativem Fallback bei Widerspruch.
+
+### 11.2 Kalibrierungsschwellen (Uebergang Cold-Start zu Reliability-Fusion)
+
+Der Uebergang vom Cold-Start-Modus (MC-Mode) zur Reliability-weighted Fusion DARF erst erfolgen, wenn **alle** folgenden Kriterien erfuellt sind:
+
+| Kriterium | Schwelle | Begruendung |
+|-----------|----------|-------------|
+| **Mindest-Handelstage** | >= 100 Handelstage mit vollstaendigen Decision-Logs | 20 Tage (wie in frueheren Versionen) sind statistisch nicht belastbar. 100 Tage liefern ausreichend Samples fuer eine robuste Bootstrapping-Analyse |
+| **Mindest-Decision-Samples (global)** | >= 5.000 Decision-Samples pro Modell (Quant und LLM) | Bei typisch 80--100 3m-Decisions pro Tag und Instrument sind 5.000 Samples nach ca. 50--65 Instrumenten-Tagen erreicht. Fuer statistische Signifikanz der Kalibrierungskurve erforderlich |
+| **Mindest-Samples pro Regime** | >= 200 Samples pro Regime-Klasse (TREND_UP, TREND_DOWN, RANGE_BOUND, HIGH_VOLATILITY, UNCERTAIN) | Regime-spezifische Offsets (fuer F3: hierarchisches Pooling) benoetigen ausreichende Stichprobengroesse pro Klasse. Bei seltenen Regimes (z.B. HIGH_VOLATILITY) kann Shrinkage zum globalen Score helfen |
+| **Konfidenzintervall-Breite** | CI-Breite der Kalibrierungskurve (Bootstrap, 95%) < 0.15 | Wenn das Konfidenzintervall der Kalibrierungskurve zu breit ist, ist die Schaetzung nicht praezise genug fuer verlaessliche Gewichtung |
+
+### 11.3 Uebergangsprozess
+
+1. **Phase 0 (Cold Start):** MC-Mode. KPI-primaer, LLM sekundaer. Kein Reliability-Scoring aktiv. Ground-Truth-Labels werden trotzdem erzeugt (fuer spaetere Kalibrierung).
+2. **Phase 1 (Datensammlung):** Weiterhin MC-Mode. Reliability-Scores werden im Hintergrund berechnet, aber NICHT fuer Regime-Fusion verwendet. FusionLab laeuft im Shadow-Mode (nur Logging, keine Auswirkung auf Trading).
+3. **Phase 2 (Kalibrierung validiert):** Wenn alle Schwellen aus Abschnitt 11.2 erfuellt sind, wird die Reliability-weighted Fusion per Konfigurationsschalter **manuell** aktiviert (kein automatischer Uebergang). Der Operator prueft die FusionLab-Ergebnisse und entscheidet.
+
+### 11.4 Fallback bei Kalibrierungsverlust
+
+Wenn nach Aktivierung der Reliability-weighted Fusion die Kalibrierungsqualitaet sinkt (z.B. durch Regime-Shift im Markt, der historische Daten entwertet), MUSS das System automatisch auf MC-Mode zurueckfallen:
+
+- **Trigger:** CI-Breite der Kalibrierungskurve ueberschreitet 0.20 fuer > 5 konsekutive Handelstage
+- **Aktion:** Automatischer Fallback auf MC-Mode + WARNING Alert
+- **Recovery:** Manuelle Reaktivierung nach erneuter Validierung der Kalibrierungsqualitaet

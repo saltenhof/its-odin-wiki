@@ -50,21 +50,22 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Konzept:
-    - Fachkonzept: concept/intraday-agent-concept.md
-    - "Strategieoptimierung & LLM-Integration": concept/strategy-optimization-sparring.md
     - "Konsolidiertes Zielbild":
-      - "00 — Systemuebersicht": concept/concept-llm-quant-core-consolidated-by-claude/00-overview.md
-      - "01 — Datenpipeline": concept/concept-llm-quant-core-consolidated-by-claude/01-data-pipeline.md
-      - "02 — Regime-Erkennung": concept/concept-llm-quant-core-consolidated-by-claude/02-regime-detection.md
-      - "03 — Strategielogik": concept/concept-llm-quant-core-consolidated-by-claude/03-strategy-logic.md
-      - "04 — LLM-Integration": concept/concept-llm-quant-core-consolidated-by-claude/04-llm-integration.md
-      - "05 — Stops & Profit-Protection": concept/concept-llm-quant-core-consolidated-by-claude/05-stops-profit-protection.md
-      - "06 — Risikomanagement": concept/concept-llm-quant-core-consolidated-by-claude/06-risk-management.md
-      - "07 — OMS & Execution": concept/concept-llm-quant-core-consolidated-by-claude/07-oms-execution.md
-      - "08 — Symmetrisches Hybrid-Protokoll": concept/concept-llm-quant-core-consolidated-by-claude/08-symmetric-hybrid-protocol.md
-      - "09 — Backtesting & Evaluation": concept/concept-llm-quant-core-consolidated-by-claude/09-backtesting-evaluation.md
-      - "10 — Observability": concept/concept-llm-quant-core-consolidated-by-claude/10-observability.md
-      - "11 — Edge Cases & Failure Modes": concept/concept-llm-quant-core-consolidated-by-claude/11-edge-cases.md
+      - "00 — Systemuebersicht": concept/00-overview.md
+      - "01 — Datenpipeline": concept/01-data-pipeline.md
+      - "02 — Regime-Erkennung": concept/02-regime-detection.md
+      - "03 — Strategielogik": concept/03-strategy-logic.md
+      - "04 — LLM-Integration": concept/04-llm-integration.md
+      - "05 — Stops & Profit-Protection": concept/05-stops-profit-protection.md
+      - "06 — Risikomanagement": concept/06-risk-management.md
+      - "07 — OMS & Execution": concept/07-oms-execution.md
+      - "08 — Symmetrisches Hybrid-Protokoll": concept/08-symmetric-hybrid-protocol.md
+      - "09 — Backtesting & Evaluation": concept/09-backtesting-evaluation.md
+      - "10 — Observability": concept/10-observability.md
+      - "11 — Edge Cases & Failure Modes": concept/11-edge-cases.md
+    - "Archiv":
+      - Fachkonzept: concept/archiv/intraday-agent-concept.md
+      - "Strategieoptimierung & LLM-Integration": concept/archiv/strategy-optimization-sparring.md
   - Architektur:
     - architecture/index.md
     - "Kap 0 — Systemübersicht": architecture/00-system-overview.md
