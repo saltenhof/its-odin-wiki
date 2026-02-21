@@ -1,6 +1,6 @@
 # Working State: Konzeptkonsolidierung ODIN
 
-**Stand:** 2026-02-21 (aktualisiert: Ende Session 2)
+**Stand:** 2026-02-21 (aktualisiert: Ende Session 3)
 **Kontext:** Diese Datei dokumentiert den aktuellen Arbeitsstand der Konzeptkonsolidierung, damit eine neue Claude-Session nahtlos weiterarbeiten kann.
 
 ---
@@ -514,3 +514,98 @@ Zwei Stories aus Wave 0 haben QS-Pruefung in Session 2 nicht vollstaendig durchl
 - ODIN-044 (Cycle Table): `2751864`
 - ODIN-045 (Hash Chain Schema): `523987b`
 - ODIN-005 und ODIN-006: Code committed, Remediation ausstehend
+
+---
+
+## Session 3 — Implementierungsphase (2026-02-21)
+
+### 21. Abgeschlossene Stories (QS PASS) — Session 3
+
+4 Stories wurden erfolgreich implementiert, durch QS-Agents geprueft und auf `its-odin-backend/main` committed.
+
+| Story | Modul | Commit | Wesentliche Aenderungen |
+|-------|-------|--------|------------------------|
+| **ODIN-005** | odin-api | (R2 Remediation) | MonitorEventIntegrationTest (4 ITs), Jakarta Validation Annotations auf MonitorEvent ergaenzt, ChatGPT- und Gemini-Reviews vollstaendig, 5 Open Points dokumentiert. Build: 83 UT + 30 IT, SUCCESS |
+| **ODIN-006** | odin-api | (R2 Remediation) | Critical Bug gefixt: `totalCyclesCompleted` wurde nie inkrementiert → `GlobalRiskManager.onCycleCompleted()` implementiert. CycleTrackingIntegrationTest (7 ITs), 4 neue CycleContext-Invarianten aus ChatGPT-Review, 8 Open Points dokumentiert. Build: 88 UT + 37 IT, SUCCESS |
+| **ODIN-002** | odin-api | (nach ODIN-006) | `LlmTacticalOutput` Record + 7 Enums: `LlmAction`, `ExitBias`, `TrailMode`, `ProfitProtectionProfile`, `TargetPolicy`, `EntryTiming`, `SizeModifier`. `LlmAnalysis` mit `@Deprecated(forRemoval=true)` markiert. 36 UT + 13 IT, SUCCESS |
+| **ODIN-007** | odin-data | `cc5de96` | `MonitorEventDetector` mit 9 Detektoren: `CRASH_DOWN`, `SPIKE_UP`, `EXHAUSTION_CLIMAX`, `STRUCTURE_BREAK_1M`, `DQ_STALE`, `DQ_OUTLIER`, `DQ_GAP`, `VWAP_CROSS_1M`, `EMA_CROSS_1M`. In `DataPipelineService` integriert. Critical Bug gefixt: SMA-Self-Inclusion-Fehler. 268 UT + 11 IT, SUCCESS |
+
+**Gesamtfortschritt:** 13 von 50 Stories abgeschlossen = **26%**
+
+### 22. Wave-Status nach Session 3
+
+| Wave | Stories | Abgeschlossen | Status |
+|------|---------|--------------|--------|
+| Wave 0 (Foundation, 7 Stories) | 7 | 7 | **VOLLSTAENDIG** — ODIN-001,003,004,005,006,044,045 alle PASS |
+| Wave 1 (Independent Domain) | ca. 10-15 | 6+ | ODIN-002,007,008,009,015,020 PASS; Rest noch nicht gestartet |
+| Wave 2-6 | 33 | 0 | Noch nicht gestartet |
+
+**Wave 0 ist vollstaendig abgeschlossen.**
+
+### 23. Technische Details der Session-3-Stories
+
+#### ODIN-005 Remediation (R2): MonitorEvent-Erweiterungen
+
+- Jakarta Validation Annotations (`@NotNull`, `@NotBlank`, `@Valid`) auf `MonitorEvent` und Untertypen nachgetragen
+- `MonitorEventIntegrationTest` als neue `*IntegrationTest`-Klasse: 4 Integrationstests (Serealisierung, Validierung, Feld-Constraints, polymorphe Events)
+- Failsafe-Plugin fuer odin-api `pom.xml` aktiviert, damit ITs im Maven-Build ausgefuehrt werden
+- ChatGPT-Sparring abgeschlossen (3 Runden), Gemini-Review alle 3 Dimensionen (Code-Bugs, Konzepttreue, Praxis-Gaps)
+- 5 Open Points aus den Reviews in `protocol.md` dokumentiert
+
+#### ODIN-006 Remediation (R2): CycleTracking-Korrektur
+
+- **Kritischer Bug:** `GlobalRiskManager.onCycleCompleted()` war nicht implementiert — `totalCyclesCompleted` blieb dauerhaft 0
+- Fix: `onCycleCompleted(String instrumentId)` implementiert, inkrementiert Counter und triggert Limit-Pruefung
+- 4 neue Invarianten aus ChatGPT-Review in `CycleContext` aufgenommen (z.B. `cycleNumber >= 1`, `maxCycles >= 1`)
+- `CycleTrackingIntegrationTest`: 7 Integrationstests (Counter-Inkrementierung, Limit-Enforcement, Grenzbedingungen)
+- 8 Open Points aus den Reviews in `protocol.md` dokumentiert
+
+#### ODIN-002: LLM Tactical Parameter Schema
+
+- `LlmTacticalOutput` als immutabler Record (ersetzt das alte `LlmAnalysis`-Modell)
+- 7 neue Enums definieren das komplette LLM-Taktik-Vokabular:
+  - `LlmAction`: `NO_TRADE`, `ENTER_LONG`, `ADD_TRANCHE`, `REDUCE_POSITION`, `EXIT_FULL`, `TRAIL_ONLY`
+  - `ExitBias`: `HOLD`, `TAKE_PARTIAL`, `EXIT_ON_WEAKNESS`, `EXIT_AGGRESSIVE`
+  - `TrailMode`: `ATR_TRAIL`, `EMA_TRAIL`, `HIGHLOW_TRAIL`, `FIXED_STOP`
+  - `ProfitProtectionProfile`: `NONE`, `CONSERVATIVE`, `MODERATE`, `AGGRESSIVE`
+  - `TargetPolicy`: `USE_TARGETS`, `TRAIL_ONLY`, `HYBRID`
+  - `EntryTiming`: `IMMEDIATE`, `WAIT_PULLBACK`, `WAIT_CONFIRMATION`
+  - `SizeModifier`: `FULL`, `REDUCED`, `MINIMAL`
+- `LlmAnalysis` mit `@Deprecated(forRemoval=true)` markiert — Migrationsschutz fuer kuenftige Consumers
+- 36 Unit-Tests + 13 Integrationstests, Failsafe-Plugin, ChatGPT- und Gemini-Reviews
+
+#### ODIN-007: MonitorEventDetector
+
+- 9 Detektoren in einer einzigen Klasse, klar getrennte Evaluierungs-Methoden
+- **CRASH_DOWN / SPIKE_UP:** Prozentualer Preissprung in einer 1m-Bar ueber konfigurierbarem Schwellenwert
+- **EXHAUSTION_CLIMAX:** Kombination aus extremem Volumen + Umkehr-Candle
+- **STRUCTURE_BREAK_1M:** Unterbrechung des letzten Swing-Highs/-Lows
+- **DQ_STALE / DQ_OUTLIER / DQ_GAP:** Datenqualitaets-Ereignisse direkt aus DQ-Gate-Ergebnissen
+- **VWAP_CROSS_1M / EMA_CROSS_1M:** Preis-Kreuzungen ueber/unter VWAP bzw. EMA
+- Integration in `DataPipelineService`: nach DQ-Gate-Pruefung, vor KPI-Berechnung aufgerufen
+- **Bug-Fix:** SMA-Self-Inclusion — SMA-Berechnung schloss die aktuelle Bar faelschlicherweise in die Lookahead-Pruefung ein
+- 268 Unit-Tests + 11 Integrationstests; Commit `cc5de96`
+
+### 24. Naechste Kandidaten fuer Session 4
+
+| Story | Modul | Groesse | Abhaengigkeiten | Prioritaet |
+|-------|-------|---------|-----------------|-----------|
+| ODIN-010 | odin-brain | M | ODIN-002 (PASS) | Hoch — Subregime-Resolver, erste odin-brain Story |
+| ODIN-011 | odin-brain | M | ODIN-010 | Mittel — nach ODIN-010 |
+| ODIN-023 | odin-execution | S | keine | Hoch — FX-Conversion Sizing |
+| ODIN-029 | odin-core | M | keine | Hoch — Daily Performance Recording |
+| ODIN-032 | odin-audit | S | keine | Mittel — Trade Intent HMAC |
+| ODIN-035 | odin-backtest | M | keine | Mittel — Backtest Governance |
+| ODIN-036 | odin-backtest | M | keine | Mittel — Backtest Cost Model |
+
+### 25. Git-Status nach Session 3
+
+**Wiki-Repo** (`its-odin-wiki`):
+- WORKING-STATE Update Session 3: dieser Commit
+
+**Backend-Repo** (`its-odin-backend/main`):
+- ODIN-005 (MonitorEvent Remediation R2): committed
+- ODIN-006 (CycleTracking Remediation R2): committed
+- ODIN-002 (LLM Tactical Schema): committed
+- ODIN-007 (MonitorEventDetector): `cc5de96`
+- Build-Stand: 268 UT + 37 IT gesamt, alle GREEN
