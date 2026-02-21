@@ -272,9 +272,67 @@ Stories fuer spaetere Entwicklungsstufen werden miterfasst aber explizit als Pha
 
 ---
 
-## 7. Checkliste fuer Story-Ersteller
+## 7. Agent-Execution-Regeln (verbindlich)
 
-Vor dem Veroeffentlichen einer Story pruefen:
+Die folgenden Regeln gelten fuer die Ausfuehrung von User Stories durch Claude-Sub-Agents. Sie sind das Ergebnis empirischer Erkenntnisse aus der ersten Implementierungswelle und NICHT verhandelbar.
+
+### 7.1 Eine Story = Ein Agent (Kontexthygiene)
+
+**IMMER einen neuen, dedizierten Agent pro User Story starten.** Niemals mehrere Stories in einem Agent buendeln.
+
+**Begruendung:** Mit jeder Aktion waechst der Agent-Kontext. Ab einem Schwellenwert findet **Context-Compaction** statt — der Agent verliert Teile seiner Instruktionen. Wenn ein Agent mehrere Stories sequenziell abarbeitet, weiss er bei der dritten Story nur noch die Haelfte von dem, was er tun sollte. Die DoD-Compliance sinkt mit jeder weiteren Story drastisch.
+
+**Konsequenz:**
+- Der Orchestrator (Primary Claude) startet pro Story einen frischen Agent
+- Jeder Agent erhaelt: die story.md, die User-Story-Spezifikation, CLAUDE.md, und die relevanten Konzeptdateien
+- Jeder Agent arbeitet EINE Story vollstaendig ab (Code → Tests → ChatGPT-Sparring → Gemini-Review → Protokoll → Commit)
+- Nach Abschluss meldet der Agent zurueck und wird beendet
+
+### 7.2 Fail-Fast bei blockierten DoD-Schritten
+
+Wenn ein Agent einen Pflichtschritt der DoD nicht ausfuehren kann (z.B. ChatGPT/Gemini nicht verfuegbar, Kompilierungsfehler nicht loesbar, Dependency nicht vorhanden), dann:
+
+1. **Sofort abbrechen** — nicht den Schritt ueberspringen und weitermachen
+2. **Fehlermeldung zurueckgeben** mit: welcher Schritt blockiert ist, warum, was fehlt
+3. **Keine Partial-Completion** — eine Story ist entweder vollstaendig oder gar nicht abgeschlossen
+
+**Begruendung:** "Fast alles gemacht, nur ChatGPT hat nicht funktioniert" fuehrt zu systematischen Luecken die spaeter teuer nachgearbeitet werden muessen. Lieber frueher scheitern und den Orchestrator informieren.
+
+### 7.3 QS-Gate nach jedem Agent
+
+Nach Abschluss eines Implementierungs-Agents wird ein **dedizierter QS-Agent pro Story** gestartet, der prueft:
+
+- Alle DoD-Checkboxen gegen den tatsaechlichen Code und die Protokolldatei
+- Kompilierung und Testausfuehrung
+- Konzepttreue (Vergleich Implementierung vs. Konzeptdokument)
+- Vollstaendigkeit der Protokolldatei
+
+Bei NICHT BESTANDEN geht die Story in die Nacharbeit (neuer Agent mit den QS-Findings als Input).
+
+### 7.4 Agent-Prompt-Struktur (Pflichtbestandteile)
+
+Jeder Implementierungs-Agent erhaelt im Prompt:
+
+1. **Story-Datei:** Pfad zur `story.md` (der Agent liest sie selbst)
+2. **User-Story-Spezifikation:** `docs/meta/user-story-specification.md` (DoD-Referenz)
+3. **CLAUDE.md:** `T:\codebase\its_odin\CLAUDE.md` (Coding-Regeln)
+4. **Konzeptdateien:** Pfade zu den in der Story referenzierten Konzeptdokumenten
+5. **Guardrails:** Pfade zu den relevanten Guardrail-Dokumenten
+6. **Explizite Anweisung:** "Lies die User-Story-Spezifikation und befolge ALLE DoD-Punkte 2.1 bis 2.8. Ueberspringe KEINEN Schritt. Bei Blockern: abbrechen und Fehler melden."
+
+### 7.5 Parallelisierung
+
+- Stories OHNE Abhaengigkeiten koennen parallel durch separate Agents umgesetzt werden
+- Jeder parallele Agent arbeitet auf einem **eigenen Modul** (kein Git-Konflikt)
+- Bei Stories im gleichen Modul: sequenziell oder per Git-Worktree isolieren
+- **ChatGPT-Pool:** Max. 4 parallele Slots — bei mehr als 4 Agents staggern
+- **Gemini-Pool:** Max. 4 parallele Slots — analoge Regelung
+
+---
+
+## 8. Checkliste fuer Story-Ersteller
+
+Vor dem Veroeffentlichen einer Story pruefen (gilt auch fuer den Orchestrator-Prompt an den Agent):
 
 - [ ] Alle Pflichtfelder ausgefuellt
 - [ ] Akzeptanzkriterien sind **testbar** (nicht "soll gut funktionieren")
