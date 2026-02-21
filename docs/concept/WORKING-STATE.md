@@ -85,7 +85,117 @@ Bei einer Stichprobenpruefung der offenen Punkte wurde festgestellt, dass "Backt
 - 6.2 Survivorship Bias (Delistete Aktien, Limitation dokumentieren)
 - 6.3 Timezone und Kalender (US/Eastern, NYSE-Kalender, Halts)
 
-Alle nachfolgenden Abschnitte von 7 bis 19 durchnummeriert (vorher 6-18).
+### 7. Unabhaengiges Review durch Gemini und ChatGPT (2026-02-21)
+
+Alle 12 Konzeptdateien wurden unabhaengig von **Gemini 3.1 Pro** und **ChatGPT GPT-5.2 Thinking** reviewed. Beide Reviews waren ausfuehrlich (je 3-4 Runden mit Nachfragen).
+
+**Gesamtbewertung:**
+
+| Kriterium | Gemini | ChatGPT |
+|-----------|--------|---------|
+| Architektur-Qualitaet | 9/10 | Oberes Quartil fuer Retail/Small-Team |
+| Risk-Management | 9.5/10 | "Ungewoehnlich detailliert" |
+| Rendite-Chance | 6.5/10 | "Moeglich, aber nicht Default-Outcome" |
+
+**Konsens:** Architektur und Risk-Management sind stark. Alpha-Generierung aus OHLCV-only Long-only ist die groesste Herausforderung. LLM-Nutzen liegt realistisch bei Drawdown-/Tail-Risk-Reduktion und besserer No-Trade-Selektion, nicht bei "magischer Alpha-Generierung".
+
+### 8. Einarbeitung der Review-Findings (2026-02-21)
+
+Basierend auf den Reviews wurden **4 P0-Entscheidungen** (kritische Inkonsistenzen), **6 P1-Entscheidungen** (wichtige Luecken) und **1 neue Konzepterweiterung** im Dialog mit dem User getroffen und in die Konzeptdateien eingearbeitet.
+
+#### P0-Entscheidungen (kritische Inkonsistenzen behoben)
+
+**P0-1: LLM liefert keine Preise — OMS bestimmt Entry-Preis deterministisch**
+- `entry_price_zone` und `target_price` aus dem LLM-Output-Schema entfernt
+- Neue LLM-Felder: `setup_type` (Enum), `tactic` (WAIT_PULLBACK / BREAKOUT_FOLLOW / NO_TRADE), `urgency_level` (LOW / MEDIUM / HIGH)
+- Safety-Contract konsistent: "LLM gibt keine numerischen Preise oder Orderdetails aus — weder im Freitext noch in strukturierten Feldern"
+- OMS bestimmt Entry-Preis aus Struktur-Levels (Pre-Market H/L, Prior Day C/H/L, erste 1m-Bar, Gap-Fill, runde Zahlen) mit Taktik-zu-Level-Mapping
+- Betroffene Dateien: `04-llm-integration.md`, `07-oms-execution.md`, `08-symmetric-hybrid-protocol.md`, `11-edge-cases.md`
+
+**P0-2: Normative Begriffshierarchie Trade / Cycle / Tranche**
+- **Trade** = Alles von erster Eroeffnung bis vollstaendiger Schliessung einer Position in einem Instrument
+- **Cycle** = Erneuter Trade im selben Instrument am selben Tag (Position komplett geschlossen → neu eroeffnet)
+- **Tranche** = Teilstueck innerhalb eines Trades (Aufstocken = neue Tranche, NICHT neuer Cycle)
+- Limits: `maxCyclesPerInstrumentPerDay` (Default 3), `maxTranchesPerTrade` (konfigurierbar)
+- Betroffene Dateien: `00-overview.md`, `03-strategy-logic.md`, `06-risk-management.md`, `07-oms-execution.md`, `08-symmetric-hybrid-protocol.md`
+
+**P0-3: Datenverfuegbarkeit ist konfigurationsabhaengig**
+- Drei Stufen ueber `odin.data.subscriptions`: OHLCV_ONLY / BASIC_QUOTES / L2_DEPTH
+- Jedes Feature hat Proxy-Fallback fuer niedrigere Stufen
+- Data/Feature-Matrix in `01-data-pipeline.md` (Backtest Standard/Recording × Live OHLCV/BASIC/L2)
+- Harte Regel: "Alpha-Signale duerfen nur auf Daten basieren, die im Backtest desselben Laufs verfuegbar waren"
+- Recording-Modus: Live-Daten aufzeichnen fuer reichere Backtest-Datenbasis ueber Zeit
+- Backtest-Runs mit Datenstufe getaggt (`data_tier` in DB-Schema)
+- Betroffene Dateien: `00-overview.md`, `01-data-pipeline.md`, `09-backtesting-evaluation.md`
+
+**P0-4: Quant-Score durch Gate-Kaskade ersetzt**
+- Kein gewichteter `quant_score` mehr — stattdessen harte Ja/Nein-Gates pro Indikator
+- 7 Gates: Spread, Volume, RSI, EMA-Trend, VWAP, ATR, ADX
+- Hard-Veto (kein Override) vs. Soft-Gate (Schwelle durch Regime-Confidence moduliert)
+- QuantOutput-Schema: `gates_passed` (boolean) + `failed_gates` (Set von Enums) statt `quant_score` (float)
+- Betroffene Dateien: `03-strategy-logic.md`, `08-symmetric-hybrid-protocol.md`
+
+#### P1-Entscheidungen (wichtige Luecken geschlossen)
+
+**P1-1: Kein Universe Ingestion Gate**
+- Bewusste Designentscheidung: Instrumente werden vom Operator handverlesen uebergeben
+- Kein automatischer Screening-/Validierungsfilter
+- Dokumentiert in `00-overview.md`
+
+**P1-2: Partial Fills als bekannte V1-Limitation**
+- Im Backtest nicht modelliert (immer vollstaendiger Fill)
+- Bei populaeren High-Beta-Aktien zu RTH praktisch irrelevant
+- Im Live-Monitoring beobachten
+- Dokumentiert in `07-oms-execution.md` und `09-backtesting-evaluation.md`
+
+**P1-3: Crash-Recovery als Zielbild, niedrige Prio**
+- V1-Schutz: GTC-Stops beim Broker + Operator sitzt davor
+- Zielbild (spaetere Entwicklungsstufe): Externer Watchdog + Operator-Alerting (hoechste Prio) + optionaler Position-Management-Only Recovery Mode
+- Alerting bei Prozess-Tod hat hoehere Prio als automatischer Restart
+- Dokumentiert in `11-edge-cases.md` (V1 vs. Zielbild getrennt) und `10-observability.md`
+
+**P1-4: Incomplete-Bar-Policy als harte Regel**
+- Bei 1m-Decision-Interrupt: Letzter abgeschlossener 3m/10m-State wird eingefroren
+- Nur dedizierte 1m-Features der triggernden Bar werden frisch berechnet
+- Keine Neuberechnung von EMAs/Baendern auf unfertigen Bars
+- Harte Anforderung fuer Backtest-Fidelity
+- Dokumentiert in `01-data-pipeline.md`
+
+**P1-5: Post-Fill Exit Split fuer Bracket-Orders**
+- Ein einziger Entry (eine Order)
+- Nach Fill: OMS splittet in separate OCA-Exit-Gruppen pro Tranche
+- OCA-Gruppe je mit Target (Limit) + Stop (Stop-Market)
+- Bei Target-Fill storniert IB serverseitig nur den zugehoerigen Stop — keine Race Condition
+- Dokumentiert in `07-oms-execution.md`
+
+**P1-6: V1 nur US-Markt**
+- V1 fokussiert ausschliesslich auf US-Maerkte (NYSE, NASDAQ)
+- EU-Maerkte als spaetere Erweiterung vorgesehen, nicht Teil der V1-Spezifikation
+- Begruendung: Kostenstruktur macht US-Intraday fuer Privatpersonen deutlich attraktiver
+- Dokumentiert in `00-overview.md`
+
+#### Neue Konzepterweiterung
+
+**Pre-Market Instrument Profiling**
+- In WARMUP-Phase analysiert das LLM die historischen Intraday-Verlaeufe des Instruments
+- 5 Dimensionen: Gap-Verhalten, Recovery-Tendenz, Reversal-Zeitfenster, Volatilitaetsprofil, Trendkontinuitaet
+- Output: Strukturiertes Instrument-Profil mit Enums + Begruendung
+- Deterministische Validierung durch QuantEngine: Bei Widerspruch gilt quantitative Evidenz
+- Profil fliesst als statischer Kontext in alle Intraday-LLM-Calls ein
+- Dokumentiert in `04-llm-integration.md` (Abschnitt 8)
+
+### 9. Verifikation der Einarbeitung (2026-02-21)
+
+4 parallele Verifikations-Agents haben alle 12 Konzeptdateien geprueft:
+
+| Entscheidung | Status | Anmerkung |
+|-------------|--------|-----------|
+| P0-1 | ✅ Vollstaendig | 2 verwaiste `entry_price_zone`-Referenzen in 11-edge-cases.md nachkorrigiert |
+| P0-2 | ✅ Vollstaendig | 2 "Round-Trip"-Referenzen in 06-risk-management.md nachkorrigiert |
+| P0-3 | ✅ Vollstaendig | Keine Inkonsistenzen |
+| P0-4 | ✅ Vollstaendig | Keine `quant_score`-Referenzen mehr |
+| P1-1 bis P1-6 | ✅ Alle vorhanden | Korrekt dokumentiert |
+| Pre-Market Profiling | ✅ Vorhanden | Vollstaendig mit Schema und Validierung |
 
 ---
 
@@ -95,45 +205,33 @@ Alle nachfolgenden Abschnitte von 7 bis 19 durchnummeriert (vorher 6-18).
 
 ```
 docs/concept/
-├── 00-overview.md              ← Systemuebersicht, Scope, Constraints, Designphilosophie
-├── 01-data-pipeline.md         ← OHLCV-only, L2-Kompromiss, Timeframes, DQ-Gates
+├── 00-overview.md              ← Systemuebersicht, Scope, Constraints, Begriffshierarchie, US-only V1
+├── 01-data-pipeline.md         ← Datenstufen (OHLCV/BASIC/L2), Feature-Matrix, Incomplete-Bar-Policy
 ├── 02-regime-detection.md      ← 5 Regime, Subregimes, Fusion, FusionLab, Cold-Start
-├── 03-strategy-logic.md        ← FSM, Decision Loop, 4 Setups, Multi-Cycle-Day
-├── 04-llm-integration.md       ← Tactical Parameter Controller, Schema, Anti-Halluzination
+├── 03-strategy-logic.md        ← FSM, Decision Loop, 4 Setups, Gate-Kaskade, Multi-Cycle-Day
+├── 04-llm-integration.md       ← Tactical Controller (Enums, keine Preise), Instrument-Profiling, Anti-Halluzination
 ├── 05-stops-profit-protection.md ← ATR-Freeze, R-Protection, Trailing, Exhaustion
 ├── 06-risk-management.md       ← 3 Verteidigungslinien, Position Sizing, Kill-Switch
-├── 07-oms-execution.md         ← Order State Machine, Bracket, Multi-Tranchen
-├── 08-symmetric-hybrid-protocol.md ← Dual-Key, Arbiter, JSON-Schemata
-├── 09-backtesting-evaluation.md ← Evaluationsdesign, Datenqualitaet, Challenger-Suite, Gate-Kaskade, DB-Schema
-├── 10-observability.md         ← Monitoring, Audit, Dashboard, SLOs
-├── 11-edge-cases.md            ← 34 Edge Cases, Degradation Modes
+├── 07-oms-execution.md         ← Entry-Preis via Struktur-Levels, Post-Fill Exit Split, OCA-Gruppen
+├── 08-symmetric-hybrid-protocol.md ← Dual-Key, Arbiter, Gate-Kaskade statt Score, JSON-Schemata
+├── 09-backtesting-evaluation.md ← Evaluationsdesign, Datenstufen-Tagging, Datenqualitaet, Gate-Kaskade
+├── 10-observability.md         ← Monitoring, Audit, Dashboard, SLOs, Prozess-Tod-Alerting
+├── 11-edge-cases.md            ← 34 Edge Cases, Degradation Modes, Crash-Recovery (V1 vs. Zielbild)
 ├── WORKING-STATE.md            ← Diese Datei
 └── archiv/                     ← Alle 10 Quelldokumente + beide Konsolidierungsversionen
 ```
 
 ### Git-Status
 
-- Letzter Commit der Konsolidierung: `237c4b4` — Finale Konsolidierung mit ChatGPT-Ergaenzungen
-- Nachtrag Datenqualitaet: noch nicht committed
+- Letzter Commit der Konsolidierung: `237c4b4`
+- Review-Einarbeitung: `dfd22ac`, `ff01709`, `59da165`, `3d3db4e` (4 parallele Agents)
+- Nachkorrekturen (verwaiste Referenzen): ausstehend (wird mit diesem WORKING-STATE committed)
 - Wiki-Repo: `T:\codebase\its_odin\its-odin-wiki`
-- mkdocs.yml ist aktualisiert, `mkdocs build` erfolgreich
+- mkdocs build erfolgreich
 
-### Was als Naechstes ansteht
+### Offene Punkte
 
-**Review-Schleife:** Der User will die 12 konsolidierten Dateien reviewen lassen (vermutlich mit neuen MCP-Plugins). Ziel ist sicherzustellen, dass kein Informationsverlust aufgetreten ist und die Qualitaet stimmt.
-
-### Offene Punkte (Stichprobe geprueft 2026-02-21, verifiziert 2026-02-21)
-
-**Alle erledigt:**
-
-- ~~Instrument-Selektion~~ → `00-overview.md` (Instrumentauswahl) + `03-strategy-logic.md` (Abschnitt 11)
-- ~~FX-Hedging~~ → `06-risk-management.md` (FX-Conversion) + `05-stops-profit-protection.md` (EUR/USD-Spot) + `09-backtesting-evaluation.md` (FX-Kosten)
-- ~~Multi-Instrument-Korrelation~~ → `00-overview.md` bewusst als Out of Scope deklariert
-- ~~Backtesting-Datenqualitaet~~ → `09-backtesting-evaluation.md` Abschnitt 6 (nachgetragen)
-- ~~Quant-Score-Berechnungsformel~~ → `09-backtesting-evaluation.md` Abschnitt 7.3: Geometric Score mit λ=1.0, μ=2.0 explizit definiert
-- ~~Gate-0-Schwellen~~ → `09-backtesting-evaluation.md` Abschnitt 13: MDD ×1.10, ES95 −0.0005, TailLossFreq +20% quantifiziert
-- ~~Loss-Cost-Matrix~~ → `08-symmetric-hybrid-protocol.md` Abschnitt 8.3 + `02-regime-detection.md` Abschnitt 6.4: 5 Kernzellen definiert, Rest intentional offen fuer Walk-Forward-Kalibrierung
-- ~~FusionLab Gate-2-Schwelle~~ → `02-regime-detection.md` Abschnitt 10-11: CI-Breite < 0.15 als Proxy, Quantifizierung ueber Walk-Forward-Plateau-Stabilisierung geplant
+**Keine offenen Punkte.** Alle P0- und P1-Findings aus dem Gemini/ChatGPT-Review sind eingearbeitet und verifiziert.
 
 ### Stakeholder-Entscheidungen (bindend, muessen erhalten bleiben)
 
@@ -146,6 +244,13 @@ docs/concept/
 - Runner-Trail bleibt, Profit-Protection als Floor
 - TRAIL_ONLY als OMS-Override
 - Alte Backtests loeschen (keine Event-Logs, unbrauchbar)
+- **Neu:** LLM liefert keine Preise — OMS bestimmt Entry-Preis deterministisch aus Struktur-Levels
+- **Neu:** Trade/Cycle/Tranche-Hierarchie: Aufstocken = Tranche, nicht Cycle
+- **Neu:** Datenverfuegbarkeit konfigurationsabhaengig (OHLCV_ONLY / BASIC_QUOTES / L2_DEPTH)
+- **Neu:** Gate-Kaskade statt gewichtetem Quant-Score
+- **Neu:** V1 nur US-Markt (NYSE, NASDAQ)
+- **Neu:** Pre-Market Instrument Profiling durch LLM in WARMUP-Phase
+- **Neu:** Instrument-Selektion extern durch Operator (kein Universe Ingestion Gate)
 
 ### Wichtige Architektur-Referenzen
 

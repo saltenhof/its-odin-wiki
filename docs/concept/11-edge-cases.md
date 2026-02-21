@@ -119,7 +119,7 @@ ODIN operiert in einem Umfeld, in dem Markt-Extremsituationen, Infrastruktur-Aus
 
 | Aspekt | Beschreibung |
 |--------|--------------|
-| **Erkennung** | Entry erst nach der 2./3. gruenen Kerze statt beim Reclaim. Preis bereits > 1R ueber entry_price_zone.max |
+| **Erkennung** | Entry erst nach der 2./3. gruenen Kerze statt beim Reclaim. Preis bereits > 1R ueber dem OMS-Struktur-Level-Referenzpreis |
 | **Reaktion** | Rules Engine blockiert Entry. ReasonCode: `A_OVEREXTENDED` oder Setup-spezifisch |
 | **Begruendung** | Schlechtes R/R -- normaler Pullback wuerde Position bereits ausspuelen |
 
@@ -453,7 +453,7 @@ Die folgende Tabelle konsolidiert alle Edge Cases aus allen Quelldokumenten:
 | 19 | **Bull Trap / Reclaim ohne Follow-Through** | Setup invalidiert | Initial-Stop schuetzt. Kein Re-Entry fuer dieses Pattern | INFO |
 | 20 | **Fakeout am Apex** (Setup C) | Preis kehrt in Formation zurueck | Exit bei Reentry. Cooldown | INFO |
 | 21 | **Zu tiefer Pullback / Lower-Low** | Lower-Low statt Higher-Low | Sofortiger Exit, OBSERVING | INFO |
-| 22 | **Spaeter Entry** (> 1R ueber optimal) | Preis > entry_price_zone.max | Entry blockiert | INFO |
+| 22 | **Spaeter Entry** (> 1R ueber optimal) | Preis > OMS-Struktur-Level-Referenzpreis | Entry blockiert | INFO |
 | 23 | **Overtrading in Chop** | RANGE_BOUND, viele Rejections | Gates tighten, Cooldown, Max-Trades | WARNING |
 | 24 | **Event-Schock waehrend Pattern** | News/Orderflow-Schock | Flash-Crash: Kill-Switch. Moderat: Re-Evaluation | WARNING→CRITICAL |
 | 25 | **Slippage-Ueberraschung** (> 0.5%) | Fill vs. Order-Preis | Stop anpassen, ggf. Exit wenn R/R zerstoert | WARNING |

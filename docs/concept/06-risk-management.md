@@ -27,12 +27,12 @@ Das Risikomanagement ist in drei hierarchische Verteidigungslinien gegliedert. J
 | Regel | Wert | Scope |
 |-------|------|-------|
 | **Hard-Stop** | -10% Tageskapital (realisiert + unrealisiert). Echtzeit-Pruefung | **Global** ueber alle Pipelines |
-| Max. Round-Trip-Trades/Tag | 5 | **Global** ueber alle Pipelines und Zyklen |
+| Max. Trades (Cycles)/Tag | 5 | **Global** ueber alle Pipelines und Cycles |
 | Max. Zyklen pro Pipeline/Tag | 3 (konfigurierbar) | Per Pipeline |
 | Cooling-Off nach Verlustserie | 30 Minuten nach 3 Verlusten in Folge | Global |
 | Exposure-Limit | 80% des Tageskapitals | Global (Pre-Trade-Check) |
 
-> **Limit-Hierarchie:** Das globale 5-Round-Trip-Limit dominiert ueber das per-Pipeline-Cycle-Limit. Beispiel: Bei 3 Pipelines mit je 2 Zyklen waeren 6 Round-Trips theoretisch moeglich -- das globale Limit von 5 greift vorher. In der Praxis ist das globale Limit das schaerfere Constraint.
+> **Limit-Hierarchie:** Das globale 5-Cycles-Limit dominiert ueber das per-Pipeline-Cycle-Limit (`maxCyclesPerInstrumentPerDay`). Beispiel: Bei 3 Pipelines mit je 2 Cycles waeren 6 Cycles theoretisch moeglich -- das globale Limit von 5 greift vorher. In der Praxis ist das globale Limit das schaerfere Constraint.
 
 ---
 
