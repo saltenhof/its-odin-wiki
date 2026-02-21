@@ -1,6 +1,6 @@
 # Working State: Konzeptkonsolidierung ODIN
 
-**Stand:** 2026-02-21
+**Stand:** 2026-02-21 (aktualisiert: Ende Session 2)
 **Kontext:** Diese Datei dokumentiert den aktuellen Arbeitsstand der Konzeptkonsolidierung, damit eine neue Claude-Session nahtlos weiterarbeiten kann.
 
 ---
@@ -418,3 +418,99 @@ temp/userstories/
 - CLAUDE.md: `T:\codebase\its_odin\CLAUDE.md` (vollstaendige Projekt-Konventionen)
 - User-Story-Spezifikation: `T:\codebase\its_odin\its-odin-wiki\docs\meta\user-story-specification.md`
 - Execution Plan: `T:\codebase\its_odin\temp\userstories\EXECUTION-PLAN.md`
+
+---
+
+## Session 2 — Implementierungsphase (2026-02-21)
+
+### 16. Playbook-Update: Verbindliche Execution-Regeln
+
+Das Playbook (`docs/meta/playbook.md`) wurde um einen neuen Abschnitt **"User-Story-Umsetzung: Execution-Regeln"** ergaenzt (Commit `adc1216` im Wiki-Repo).
+
+**Neue verbindliche Regeln:**
+
+| Regel | Inhalt |
+|-------|--------|
+| **Orchestrator-Rolle** | Primary Claude implementiert nichts selbst — nur Koordination, binaere Signale empfangen |
+| **Agent-Typen** | Implementierungs-Agent (Code committed) vs. QS-Agent (DoD pruefen, Findings schreiben) |
+| **Parallelisierung** | Max. 3 Agents gleichzeitig (Impl. + QS zaehlen zusammen), alle im Background-Mode |
+| **Implement → QS → Loop** | Zyklusstruktur: Impl. → QS → PASS/FAIL, max. 3 Runden, dann Eskalation |
+| **QS-Reporting** | QS schreibt `qa-report-rN.md` (N = Rundennummer), binaeres Signal an Primary |
+| **Commit-Disziplin** | Commit nur durch QS-Agent bei PASS — nicht durch Implementierungs-Agent |
+| **Hard Gate** | Nach 3x FAIL: Primary bricht ab, informiert User mit Findings-Pfad |
+| **Prompt-Struktur** | 7 Pflichtbestandteile (story.md, Spezifikation, CLAUDE.md, Konzept, Architektur, QS-Report, Runde) |
+
+### 17. Abgeschlossene Stories (QS PASS) — Session 2
+
+9 Stories wurden erfolgreich implementiert, durch QS-Agents geprueft und auf `its-odin-backend/main` committed.
+
+| Story | Modul | Commits | Wesentliche Aenderungen |
+|-------|-------|---------|------------------------|
+| **ODIN-001** | odin-api | `802ae31`, `cc68ba2` | SubRegime-Modell: Enum + Integration in RegimeState. Integrationstests, ChatGPT-Review, Gemini-Review, Failsafe-Plugin-Fix |
+| **ODIN-003** | odin-api | `4ddb4b1` | Gate-Cascade-Modell: GateEvaluation-Record, GateCascadeResult, fromEvaluations-Factory. NPE-Fix, Integrationstests, ChatGPT- + Gemini-Review |
+| **ODIN-004** | odin-api | (nach `4ddb4b1`) | DegradationMode-Enum: DEGRADED_EXECUTION als 5. Modus ergaenzt (fehlte in Wave-0-Impl.), Integrationstests |
+| **ODIN-008** | odin-data | `ced71f6`, `65c497f` | Session Boundary Detection: Power-Hour-Fenster auf 30 Min korrigiert (15:15-15:45, war 60 Min), Failsafe-Plugin in odin-data pom.xml ergaenzt, SessionPhase JavaDoc-Fix |
+| **ODIN-009** | odin-data | `9adbfd2` | Pattern Feature Recognition: PatternFeatureCalculator, 6 Features (GapUp/Down, VolumeSpike, MomentumBurst, NarrowRange, HigherLow), 237 Unit-Tests |
+| **ODIN-015** | odin-brain | `6b2596c`, `3385748` | Exhaustion Detection: ExhaustionDetector 3-Pillar-Modell (A AND B AND C statt OR), RSI-Shift-Register-Bug-Fix (falscher Index bei Lookback) |
+| **ODIN-020** | odin-execution | `f5e53e5`, `7d3e7c7` | Repricing Policy: RepricingManager, Cancel+Replace-Logik, Interval-Doubling (1min→2min→4min...) |
+| **ODIN-044** | odin-persistence | `2751864` | Cycle-Tabelle: Flyway-Migration V0XX, CycleEntity, CycleRepository, Zonky-Integrationstests |
+| **ODIN-045** | odin-audit | `523987b` | Hash-Chain-Schema: EventRecordEntity mit hash_hex und previous_hash_hex Spalten (updatable=false), ChatGPT-Edge-Case-Tests |
+
+**Gesamtfortschritt:** 9 von 50 Stories abgeschlossen = **18%**
+
+### 18. Ausstehende Remediation (QS nicht bestanden)
+
+Zwei Stories aus Wave 0 haben QS-Pruefung in Session 2 nicht vollstaendig durchlaufen. Code ist committed, aber Findings aus dem Wave-0-QS-Bericht wurden noch nicht behoben.
+
+| Story | Modul | Status | Naechste Aktion |
+|-------|-------|--------|-----------------|
+| **ODIN-005** | odin-api | Code vorhanden, systematische Findings offen | Dedizierter Remediation-Agent: `qa-report-r1.md` lesen, alle Findings beheben, erneut QS |
+| **ODIN-006** | odin-api | Code vorhanden, systematische Findings offen (u.a. `totalCyclesCompleted` wird nie inkrementiert) | Dedizierter Remediation-Agent: `qa-report-r1.md` lesen, Bug + Prozess-Findings beheben, erneut QS |
+
+### 19. Gesamtfortschritt und naechste Schritte
+
+#### Fortschritt nach Wave
+
+| Wave | Stories | Abgeschlossen | Status |
+|------|---------|--------------|--------|
+| Wave 0 (Foundation) | 7 | 5 | ODIN-001,003,004,044,045 PASS; ODIN-005,006 Remediation ausstehend |
+| Wave 1 (Independent Domain) | 10 | 4 | ODIN-008,009,015,020 PASS; Rest noch nicht gestartet |
+| Wave 2-6 | 33 | 0 | Noch nicht gestartet |
+
+#### Naechste Schritte fuer Session 3
+
+1. **Remediation ODIN-005 und ODIN-006** (Wave 0 abschliessen)
+   - Je einen dedizierten Remediation-Agenten starten
+   - Quellen: `qa-report-r1.md`, `story.md`, User-Story-Spezifikation
+   - Wave 0 ist erst vollstaendig wenn alle 7 Stories PASS
+
+2. **Wave 1 fortsetzen** (parallel zu Remediation, andere Module)
+   - ODIN-002 (LLM Tactical Parameter Schema, odin-api, abhaengig von ODIN-001 — BEREIT)
+   - ODIN-023 (FX-Conversion Sizing, odin-execution, keine Abhaengigkeiten — BEREIT)
+   - ODIN-029 (Daily Performance Recording, odin-core, keine Abhaengigkeiten — BEREIT)
+   - ODIN-032 (Trade Intent HMAC, odin-audit, keine Abhaengigkeiten — BEREIT)
+   - ODIN-035, ODIN-036 (Backtest Governance + Cost Model, keine Abhaengigkeiten — BEREIT)
+
+3. **Execution-Regelkonformitaet sicherstellen**
+   - Strikt ein Agent pro Story
+   - QS-Agent nach jedem Implementierungs-Agent (kein Ueberspringen)
+   - ChatGPT-Sparring fuer Test-Edge-Cases ist Pflicht
+   - Gemini-Review alle 3 Dimensionen (Code-Bugs, Konzepttreue, Praxis-Gaps)
+
+### 20. Git-Status nach Session 2
+
+**Wiki-Repo** (`its-odin-wiki`):
+- Playbook Execution-Regeln: `adc1216`
+- WORKING-STATE Update: dieser Commit
+
+**Backend-Repo** (`its-odin-backend/main`):
+- ODIN-001 (SubRegime): `802ae31`, `cc68ba2`
+- ODIN-003 (Gate Cascade): `4ddb4b1`
+- ODIN-004 (DegradationMode): nach `4ddb4b1`
+- ODIN-008 (Session Boundaries): `ced71f6`, `65c497f`
+- ODIN-009 (Pattern Features): `9adbfd2`
+- ODIN-015 (Exhaustion Detection): `6b2596c`, `3385748`
+- ODIN-020 (Repricing Policy): `f5e53e5`, `7d3e7c7`
+- ODIN-044 (Cycle Table): `2751864`
+- ODIN-045 (Hash Chain Schema): `523987b`
+- ODIN-005 und ODIN-006: Code committed, Remediation ausstehend
