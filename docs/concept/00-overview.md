@@ -13,7 +13,7 @@
 
 ## 1. Was ist ODIN?
 
-**ODIN** (Orderflow Detection & Inference Node) ist ein vollautomatischer Intraday-Trading-Agent fuer Aktien (US, Europa). Das System kombiniert drei Saeulen:
+**ODIN** (Orderflow Detection & Inference Node) ist ein vollautomatischer Intraday-Trading-Agent fuer Aktien. V1 fokussiert ausschliesslich auf US-Maerkte (NYSE, NASDAQ); EU-Maerkte sind als spaetere Erweiterung vorgesehen. Das System kombiniert drei Saeulen:
 
 1. **LLM-Situationsanalyse** -- Regime-Erkennung, Kontextsignale, taktische Parametersteuerung
 2. **Deterministische Regellogik** -- Entry/Exit-Entscheidungen, Pattern-State-Machines, Quant-Scoring
@@ -28,28 +28,28 @@ Das System betreibt 1--3 isolierte Pipelines parallel. Jede Pipeline handelt gen
 | Parameter | Wert | Anmerkung |
 |-----------|------|-----------|
 | Tageskapital | 10.000 EUR | Aufgeteilt auf aktive Pipelines |
-| Max. Tagesverlust (Hard-Stop) | -10% (1.000 EUR) | Global ueber alle Pipelines und alle Zyklen |
+| Max. Tagesverlust (Hard-Stop) | -10% (1.000 EUR) | Global ueber alle Pipelines und alle Cycles |
 | Instrumente | 1--3 parallel | Je Pipeline genau ein Instrument |
 | Richtung | Long only | Kein Short |
 | Instrumenttyp | Aktien | Keine Derivate |
-| Datenbasis | 1-Min OHLCV + Volume | Kein Orderbuch fuer Alpha/Regime/Setups (OHLCV-only Constraint) |
+| Datenbasis | 1-Min OHLCV + Volume (Minimum) | Konfigurierbar via `odin.data.subscriptions` (OHLCV_ONLY / BASIC_QUOTES / L2_DEPTH) |
 | Rohsignal | 1m | Monitoring-Ebene |
 | Quant-Decision-Frame | 3m | Resampled, weniger Noise |
 | Confirmation-Frame | 10m | Trend-/Regime-Hysterese, Fakeout-Filter |
 | Handelszeiten | Pre-Market + RTH | Exchange-konfigurierbar |
 | Autonomie | Vollautomatisch | Mit manuellen Controls (Pause/Kill) |
 | EOD-Flat | MUSS | Keine Overnight-Position |
-| Max. Zyklen pro Tag pro Pipeline | 3 (konfigurierbar) | Hard-Cap als Guardrail |
-| Max. Round-Trip-Trades/Tag | 5 | Global ueber alle Pipelines und Zyklen |
+| Max. Cycles pro Instrument/Tag | 3 (konfigurierbar) | `maxCyclesPerInstrumentPerDay` -- Hard-Cap als Guardrail |
+| Max. Trades/Tag (global) | 5 | Global ueber alle Pipelines und Cycles |
 
-**Instrumentauswahl:**
-Instrumente werden extern vorgegeben (Scanner/Watchlist ausserhalb des Systems). Die Auswahl wird zu Session-Start eingefroren. Wird ein Instrument vor RTH gehalted oder mit einer Trading-Restriction belegt, wechselt die betroffene Pipeline in DAY_STOPPED (kein Ersatzsymbol, andere Pipelines laufen weiter).
+**Instrumentauswahl (bewusste Designentscheidung):**
+Instrument-Selektion ist extern durch den Operator. Instrumente werden handverlesen uebergeben. Ein automatischer Screening-, Validierungs- oder Universe-Ingestion-Filter ist nicht vorgesehen. Die Auswahl wird zu Session-Start eingefroren. Wird ein Instrument vor RTH gehalted oder mit einer Trading-Restriction belegt, wechselt die betroffene Pipeline in DAY_STOPPED (kein Ersatzsymbol, andere Pipelines laufen weiter).
 
 **Anforderungen an geeignete Instrumente:**
 
-- Aktien (US, Europa)
+- Aktien (V1: ausschliesslich US-Maerkte -- NYSE, NASDAQ; EU-Maerkte als geplante Erweiterung)
 - Ausreichende Liquiditaet (Spread < 0.5%, taegl. Volumen > 500.000)
-- Keine Penny Stocks (Preis > 5 USD/EUR)
+- Keine Penny Stocks (Preis > 5 USD)
 - Handelbar ueber IB TWS
 
 ---
@@ -59,8 +59,8 @@ Instrumente werden extern vorgegeben (Scanner/Watchlist ausserhalb des Systems).
 ### In Scope
 
 - Intraday Long-Trades auf Aktien
-- Ein- und Ausstieg, Teilverkaeufe, Trailing-Stops, Re-Entry/Scale-In
-- Multi-Cycle-Handling (mehrere Episoden pro Tag pro Instrument)
+- Ein- und Ausstieg, Teilverkaeufe (Tranchen), Trailing-Stops, Re-Entry/Scale-In
+- Multi-Cycle-Handling (mehrere Trades pro Tag pro Instrument, siehe Abschnitt 9)
 - Degradation Modes (LLM-Ausfall, Daten-Feed-Ausfall)
 - Backtesting + Walk-Forward + Paper/Klein-Live Pipeline
 - Evaluationsdesign (MC vs. Unified, FusionLab)
@@ -82,26 +82,44 @@ Instrumente werden extern vorgegeben (Scanner/Watchlist ausserhalb des Systems).
 
 ## 4. Harte Constraints
 
-### 4.1 OHLCV-Only Constraint (Stakeholder-Entscheidung: L2-Kompromiss)
+### 4.1 Konfigurationsabhaengige Datenverfuegbarkeit
 
-Alpha-Generierung, Regime-Erkennung und Setup-Aktivierung basieren ausschliesslich auf **1-Minuten OHLCV-Daten** (Open/High/Low/Close/Volume). Nicht verfuegbar fuer diese Zwecke: Bid/Ask, Spread, Orderbuch (L2), Ticks, Marktbreite, Imbalance.
+Die Datenverfuegbarkeit ist NICHT statisch, sondern konfigurationsabhaengig. ODIN MUSS in jeder Stufe funktionsfaehig sein. Die Stufe wird ueber `odin.data.subscriptions` konfiguriert:
+
+| Stufe | Inhalt | Typischer Einsatz |
+|-------|--------|-------------------|
+| **OHLCV_ONLY** | Nur OHLCV-Bars | Backtest (Standard), Live-Minimalbetrieb |
+| **BASIC_QUOTES** | OHLCV + Bid/Ask | Live mit echter Spread-Pruefung, bessere Execution |
+| **L2_DEPTH** | OHLCV + Bid/Ask + Level-2-Orderbuch | Beste Execution-Qualitaet im Live-Betrieb |
+
+**Zentrale Designregel:** Features, die optional sind, haben immer einen Proxy-Fallback. Alpha-Signale DUERFEN nur auf Daten basieren, die auch im Backtest desselben Laufs verfuegbar waren.
+
+**Harter Satz:** Bid/Ask und L2-Daten DUERFEN live fuer Execution und Risk genutzt werden, aber NIE als Alpha-Feature -- es sei denn, der Backtest-Run basiert auf derselben Datenstufe (z.B. ueber aufgezeichnete Daten).
 
 **Konsequenzen:**
 
-- Liquiditaets- und Ausfuehrungsqualitaet wird ueber Proxies modelliert (Volumen/Range/Fill-Rate)
-- Alle Signale MUESSEN aus OHLCV ableitbar sein
-- Backtest: konservatives Kosten-/Fill-Modell + Stress-Szenarien
+- Alpha-Generierung, Regime-Erkennung und Setup-Aktivierung basieren im Standard ausschliesslich auf OHLCV
+- Liquiditaets- und Ausfuehrungsqualitaet wird auf der Stufe OHLCV_ONLY ueber Proxies modelliert (Volumen/Range/Fill-Rate)
+- Alle Signale MUESSEN aus OHLCV ableitbar sein, sofern kein Recording-basierter Backtest vorliegt
+- Backtest-Runs werden mit ihrer Datenstufe getaggt, um Vergleichbarkeit sicherzustellen
 
-**L2-Execution-Enhancement (optional, nur Live):**
-L2-Orderbuchdaten KOENNEN optional im Live-Betrieb fuer **Execution-Verbesserung** verwendet werden (bessere Fill-Qualitaet, Spread-Monitoring). L2 ist NICHT backtest-kritisch und beeinflusst KEINE Entscheidungslogik (Alpha/Regime/Setups). Diese Trennung stellt sicher, dass alle Backtest-Ergebnisse ohne L2 reproduzierbar sind.
+**Recording-Modus:** Wenn Bid/Ask oder L2 im Live-Betrieb verfuegbar sind, KOENNEN diese Daten aufgezeichnet werden, um spaetere Backtests auf derselben Datenstufe zu ermoeglichen. Ein Recording-basierter Backtest auf BASIC_QUOTES oder L2_DEPTH DARF dann auch Features nutzen, die auf diesen Daten basieren.
 
-### 4.2 Zeitrestriktion
+Die vollstaendige Data/Feature-Matrix findet sich in **01-data-pipeline.md**, Abschnitt "Datenverfuegbarkeits-Matrix".
+
+### 4.2 V1: Ausschliesslich US-Maerkte
+
+V1 fokussiert ausschliesslich auf US-Maerkte (NYSE, NASDAQ). Handelszeiten, Kalender, Tick-Sizes und alle marktspezifischen Konfigurationen werden nur fuer den US-Markt spezifiziert. Begruendung: Die Kostenstruktur (Kommissionen, Spreads, Markttiefe) macht US-Intraday-Trading fuer Privatpersonen deutlich attraktiver als europaeische Maerkte.
+
+EU-Maerkte (z.B. XETRA, Euronext) sind als spaetere Erweiterung vorgesehen, aber NICHT Teil der V1-Spezifikation. Die Architektur (Exchange-konfigurierbare Zeitzonen, MarketClock) ist auf Multi-Market-Betrieb vorbereitet, aber V1 implementiert und testet ausschliesslich gegen US-Boersen.
+
+### 4.3 Zeitrestriktion
 
 - Alle Zeiten beziehen sich auf die Boersen-Zeitzone des Instruments (`America/New_York` fuer US)
 - **MarketClock** ist die einzige Zeitquelle im Trading-Codepfad. Kein `Instant.now()` in Decision-/Risk-/OMS-Logik
 - Trading-Kalender MUSS Feiertage, halbe Handelstage, DST-Umstellungen korrekt abbilden
 
-### 4.3 Namespace
+### 4.4 Namespace
 
 Alle Konfigurationen verwenden den Namespace `odin.*` (nicht `moses.*`).
 
@@ -277,13 +295,43 @@ Zielkonflikt (Noise vs. Latenz) wird durch **Hierarchie** geloest statt durch "e
 
 ---
 
-## 9. Glossar
+## 9. Normative Begriffshierarchie
+
+Die folgenden Begriffe sind systemweit verbindlich und MUESSEN in Code, Konfiguration, Logging und Dokumentation einheitlich verwendet werden.
+
+### Trade
+
+Ein **Trade** umfasst alles von der ersten Eroeffnung bis zur vollstaendigen Schliessung einer Position in einem Instrument. Aufstocken (Scale-In), Teilverkaeufe (Scale-Out), Trailing-Stop-Nachfuehrung -- alles ist Teil desselben Trades. Ein Trade endet erst, wenn die gesamte Position Null ist.
+
+### Cycle
+
+Ein **Cycle** ist ein erneuter Trade im selben Instrument am selben Tag. Voraussetzung: Die Position aus dem vorherigen Trade wurde vollstaendig geschlossen. Erst dann beginnt ein neuer Cycle. Cycle 1 = erster Trade, Cycle 2 = Re-Entry nach vollstaendigem Exit, usw.
+
+Limit: `maxCyclesPerInstrumentPerDay` (Default: 3, konfigurierbar). Dieses Limit ist ein Hard-Cap als Guardrail gegen Overtrading.
+
+### Tranche
+
+Eine **Tranche** ist ein Teilstueck innerhalb eines Trades. Jede Aufstockung (Scale-In) eroeffnet eine neue Tranche. Jeder Teilverkauf (Scale-Out) schliesst eine Tranche. Die initiale Position ist Tranche 1.
+
+Limit: `maxTranchesPerTrade` (konfigurierbar). Begrenzt die Komplexitaet des Positionsmanagements innerhalb eines einzelnen Trades.
+
+### Abgrenzung
+
+| Begriff | Granularitaet | Beispiel |
+|---------|--------------|---------|
+| **Trade** | Gesamte Position von Eroeffnung bis Flat | Entry 100 Shares -> Scale-In 50 -> Trail -> Exit alles = 1 Trade |
+| **Cycle** | Erneuter Trade im selben Instrument/Tag | Trade 1 komplett geschlossen -> neuer Entry = Cycle 2 |
+| **Tranche** | Teilstueck innerhalb eines Trades | Initial 100 Shares (T1) + Scale-In 50 Shares (T2) = 2 Tranchen |
+
+---
+
+## 10. Glossar
 
 | Begriff | Bedeutung |
 |---------|----------|
 | ADR14 | Average Daily Range ueber 14 Tage |
 | ATR | Average True Range -- Mass fuer Volatilitaet, berechnet ueber N Perioden |
-| Cycle | Vollstaendiger Entry-bis-Exit Run auf demselben Instrument am selben Tag |
+| Cycle | Erneuter Trade im selben Instrument am selben Tag. Position komplett geschlossen -> neu eroeffnet = neuer Cycle (siehe Abschnitt 9) |
 | Decision-Bar | 3-Minuten-Bar als primaerer Decision-Trigger |
 | EOD-Flat | End-of-Day Flat -- alle Positionen am Tagesende geschlossen |
 | FSM | Finite State Machine -- Zustandsmaschine |
@@ -297,7 +345,9 @@ Zielkonflikt (Noise vs. Latenz) wird durch **Hierarchie** geloest statt durch "e
 | R | Risk-Multiple: 1R = Distanz Entry zu Initial Stop |
 | RTH | Regular Trading Hours (US: 09:30--16:00 ET) |
 | Runner | Kleiner Restbestand (10--20%) mit Trailing-Stop fuer Trend-Days |
-| Scaling-Out | Stufenweiser Positionsabbau in R-basierten Tranchen |
+| Scaling-Out | Stufenweiser Positionsabbau durch Schliessen einzelner Tranchen (siehe Abschnitt 9) |
 | TACTICAL_EXIT | LLM-gesteuerter Exit (bounded, KPI-bestaetigt) |
+| Trade | Gesamte Position von Eroeffnung bis vollstaendige Schliessung in einem Instrument (siehe Abschnitt 9) |
 | TRAIL_ONLY | OMS-Override: alle Targets stornieren, nur Trail |
+| Tranche | Teilstueck innerhalb eines Trades -- jede Aufstockung/Teilverkauf ist eine Tranche (siehe Abschnitt 9) |
 | VWAP | Volume Weighted Average Price -- Source-of-Truth in odin-data |

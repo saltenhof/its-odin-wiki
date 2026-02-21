@@ -4,23 +4,47 @@
 
 ---
 
-## 1. Datenrestriktion (hart)
+## 1. Datenverfuegbarkeit und -restriktion
 
-### 1.1 OHLCV-Only Constraint (Stakeholder-Entscheidung)
+### 1.1 Konfigurationsabhaengige Datenstufen
 
-Verfuegbar sind ausschliesslich **1-Min OHLCV Bars** (Open/High/Low/Close/Volume). Alpha-Generierung, Regime-Erkennung und Setup-Aktivierung basieren ausschliesslich auf OHLCV.
+Die Datenverfuegbarkeit ist NICHT statisch, sondern konfigurationsabhaengig ueber `odin.data.subscriptions`. ODIN MUSS in jeder Stufe funktionsfaehig sein:
 
-**Nicht verfuegbar fuer Entscheidungslogik:**
+| Stufe | Inhalt | Typischer Einsatz |
+|-------|--------|-------------------|
+| **OHLCV_ONLY** | Nur OHLCV-Bars | Backtest (Standard), Live-Minimalbetrieb |
+| **BASIC_QUOTES** | OHLCV + Bid/Ask | Live mit echter Spread-Pruefung, bessere Execution |
+| **L2_DEPTH** | OHLCV + Bid/Ask + Level-2-Orderbuch | Beste Execution-Qualitaet im Live-Betrieb |
 
-- Bid/Ask, Spread, Orderbuch (L2), Ticks, Marktbreite, Imbalance
+**Zentrale Designregel:** Features, die optional sind, haben immer einen Proxy-Fallback. Alpha-Signale DUERFEN nur auf Daten basieren, die auch im Backtest desselben Laufs verfuegbar waren.
 
-**L2-Kompromiss (Stakeholder-Entscheidung):**
+**Harter Satz:** Bid/Ask und L2-Daten DUERFEN live fuer Execution und Risk genutzt werden, aber NIE als Alpha-Feature -- es sei denn, der Backtest-Run basiert auf derselben Datenstufe.
 
-- Alpha/Regime/Setups: ausschliesslich aus OHLCV (backtestbar)
-- Execution-Verbesserung: optional mit L2 live (nicht backtest-kritisch)
+**Konsequenzen auf OHLCV_ONLY-Stufe:**
+
+- Alpha-Generierung, Regime-Erkennung und Setup-Aktivierung basieren ausschliesslich auf OHLCV
+- Liquiditaets- und Ausfuehrungsqualitaet wird ueber Proxies modelliert (Volumen/Range/Fill-Rate)
+- Alle Signale MUESSEN aus OHLCV ableitbar sein
 - Backtest: konservatives Kosten-/Fill-Modell + Stress-Szenarien
 
-**Konsequenz:** Liquiditaets- und Ausfuehrungsqualitaet wird ueber Proxies modelliert (Volumen/Range/Fill-Rate). Alle Signale MUESSEN aus OHLCV ableitbar sein.
+**Recording-Modus:** Wenn Bid/Ask oder L2 im Live-Betrieb verfuegbar sind, KOENNEN diese Daten aufgezeichnet werden, um spaetere Backtests auf derselben Datenstufe zu ermoeglichen. Backtest-Runs werden mit ihrer Datenstufe getaggt.
+
+### 1.2 Datenverfuegbarkeits-Matrix
+
+Die folgende Matrix zeigt, welche Daten in welchem Modus verfuegbar sind:
+
+| Daten | Backtest (Standard) | Backtest (mit Recording) | Live (OHLCV_ONLY) | Live (BASIC_QUOTES) | Live (L2_DEPTH) |
+|-------|--------------------|-----------------------|-------------------|-------------------|----------------|
+| OHLCV 1m/3m/10m | Ja | Ja | Ja | Ja | Ja |
+| Bid/Ask | Nein | Ja (recorded) | Nein (Proxy) | Ja | Ja |
+| L2 Orderbook | Nein | Ja (recorded) | Nein | Nein | Ja |
+| News/Headlines | Nein | Nein | Optional | Optional | Optional |
+
+**Proxy-Fallbacks bei fehlenden Daten:**
+
+- **Bid/Ask nicht verfuegbar:** Spread-Schaetzung ueber Volumen und Volatilitaet (konservativ). Fill-Modell mit erhoehtem Slippage.
+- **L2 nicht verfuegbar:** Liquiditaets-Assessment ueber Volumen-Ratio und historische Fill-Raten.
+- **News nicht verfuegbar:** Keine Einschraenkung der Kernfunktionalitaet. News sind stets optional und nie Alpha-kritisch.
 
 ---
 
@@ -52,6 +76,20 @@ Resampling erfolgt **zeitbasiert und bar-close-basiert**:
 **Alignment:** Resampling ist an Session-Start ausgerichtet (z.B. 09:30:00 -> 09:32:59, 09:33:00 -> 09:35:59).
 
 **Gueltigkeitsregel:** Eine 3m-Bar ist gueltig erst nach Close der dritten 1m-Bar. Keine vorzeitige Auswertung.
+
+### 3.1 Incomplete-Bar-Policy (Normativ, harte Anforderung)
+
+Bei einem erzwungenen 1m-Decision-Interrupt (z.B. durch ein CRITICAL-Event wie CRASH_DOWN oder EXHAUSTION_CLIMAX) friert die Pipeline den State der letzten vollstaendig geschlossenen 3m- und 10m-Bars ein.
+
+**Regel:** Berechnungen basieren ausschliesslich auf dem Snapshot der letzten abgeschlossenen Bars (T-1) plus den dedizierten 1m-Features der aktuellen, triggernden 1m-Bar. Es findet KEINE Neuberechnung von gleitenden Durchschnitten, Volatilitaetsbaendern oder sonstigen Multi-Bar-Indikatoren auf Basis unfertiger Bars statt.
+
+**Begruendung:** Diese Regel ist eine harte Anforderung fuer Backtest-Fidelity. Wuerde man unfertige Bars in KPI-Berechnungen einbeziehen, waeren die Ergebnisse nicht reproduzierbar -- die gleiche Marktsituation koennte je nach Zeitpunkt des Interrupts zu unterschiedlichen Indikatorwerten fuehren.
+
+**Konsequenzen:**
+
+- 1m-Features (Jump/Crash Detection, Wick Ratios, Micro-Structure) werden normal auf der aktuellen 1m-Bar berechnet
+- 3m/10m-KPIs (EMA, RSI, ADX, ATR, Bollinger) verwenden den letzten abgeschlossenen Bar
+- VWAP wird kumulativ berechnet und ist davon nicht betroffen (jeder 1m-Bar-Close aktualisiert VWAP)
 
 ---
 
@@ -143,7 +181,7 @@ Alle Marktdaten durchlaufen vor Einspeisung in den Rolling Buffer Quality Gates 
 
 ---
 
-## 7. Feature-Katalog (nur OHLCV)
+## 7. Feature-Katalog (OHLCV-Basis, stufenabhaengig erweiterbar)
 
 ### 7.1 Primaer-Features (3m Decision-Frame)
 
