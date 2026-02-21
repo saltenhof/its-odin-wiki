@@ -1,0 +1,5 @@
+
+Kompromiss für die verwendung von L2 OrderBook Daten:
+Alpha/Regime/Setups: ausschließlich aus OHLCV (backtestbar).
+Execution-Verbesserung: optional mit L2 live (nicht backtest-kritisch).
+Backtest: enthält dafür ein konservatives Kosten-/Fill-Modell + Stress-Szenarien.
