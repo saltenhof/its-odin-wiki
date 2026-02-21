@@ -8,7 +8,7 @@
 
 Das System ist ein **symmetrischer Hybrid**:
 
-- **QuantEngine:** Deterministische KPIs, Signale, Scores, Vetos, Risk-Fakten
+- **QuantEngine:** Deterministische KPIs, Signale, Gate-Kaskade (Ja/Nein-Schwellen), Vetos, Risk-Fakten
 - **LLM:** Lagebeurteilung (Regime/Szenario), Pattern-Hypothesen, taktische Profile/Parameter (bounded), Kontext-Interpretation
 
 **Gleichberechtigung bedeutet:**
@@ -44,7 +44,7 @@ Entscheidungen entstehen aus zwei Schluesseln:
 
 | Key | Komponenten |
 |-----|------------|
-| **Quant-Key** | QuantVote + Confidence + HardVetoFlags + Score |
+| **Quant-Key** | QuantVote + Confidence + HardVetoFlags + Gate-Kaskade (alle Gates bestanden?) |
 | **LLM-Key** | LlmVote + Confidence + SafetyFlags + TacticalControls |
 
 Der **Arbiter** kombiniert beides deterministisch. Kein Key allein kann eine Aktion erzwingen (ausser Hard-Risk).
@@ -59,7 +59,8 @@ Der **Arbiter** kombiniert beides deterministisch. Kein Key allein kann eine Akt
 |------|-----|-------------|
 | `vote` | Enum: `STRONG_ENTRY`, `ALLOW_ENTRY`, `NO_TRADE`, `HOLD`, `EXIT_SOON`, `EXIT_NOW` | Primaere Empfehlung |
 | `confidence` | `numeric(6,5)` [0.0 -- 1.0] | Confidence des Quant-Modells |
-| `score` | `numeric(6,5)` [0.0 -- 1.0] | Gewichteter Quant-Score |
+| `gates_passed` | `boolean` | Alle Gates der Gate-Kaskade bestanden (Ja/Nein-Schwellen pro Indikator, Details in 03-strategy-logic.md) |
+| `failed_gates` | Set von Enums | Liste der nicht bestandenen Gates (leer wenn `gates_passed = true`) |
 | `hard_veto_flags` | Set von Enums | `WARMUP_INCOMPLETE`, `DQ_VIOLATION`, `OVERBOUGHT`, `SPREAD_TOO_WIDE`, `RR_TOO_LOW` |
 | `regime` | Enum: Regime-Vokabular | KPI-basiertes Regime |
 | `regime_confidence` | `numeric(6,5)` | Confidence des KPI-Regimes |
@@ -106,25 +107,25 @@ Entry MUSS erfuellt sein:
 4. LlmVote in `{ALLOW_ENTRY, STRONG_ENTRY}`
 5. Confidences beider Seiten >= `min_conf_entry` (konfigurierbar)
 6. 10m Confirmation nicht gegensaetzlich (z.B. 10m TREND_DOWN → kein Long-Entry)
-7. Optional: `quant_score >= threshold` (z.B. 0.55)
+7. **Gate-Kaskade bestanden** (`gates_passed = true`) — alle Indikator-Gates muessen ihre Ja/Nein-Schwelle erfuellen (Details in 03-strategy-logic.md)
 
 **Dual-Key Matrix:**
 
 | QuantVote | LLM Vote | Ergebnis |
 |-----------|----------|----------|
-| ENTER + Score ok + keine Vetos | ALLOW_ENTRY / NEUTRAL | ENTER moeglich |
-| ENTER | CAUTION | ENTER nur wenn Confirmation UP + Urgency HIGH (optional) |
+| ENTER + Gates bestanden + keine Vetos | ALLOW_ENTRY / NEUTRAL | ENTER moeglich |
+| ENTER + Gates bestanden | CAUTION | ENTER nur wenn Confirmation UP + Urgency HIGH (optional) |
 | ENTER | VETO_ENTRY / SAFETY_VETO | **BLOCK** |
 | NO_ACTION | ALLOW_ENTRY | **BLOCK** |
 | EXIT (z.B. OVERBOUGHT) | ALLOW_ENTRY | **BLOCK** |
 
 ### 5.3 Entry mit Regime-Confidence-Schwellen
 
-| Regime-Confidence | Quant-Score-Schwelle |
-|-------------------|---------------------|
-| < 0.5 | Kein Entry (Regime = UNCERTAIN) |
-| 0.5 -- 0.7 | >= 0.70 (erhoehte Schwelle) |
-| > 0.7 | >= 0.50 (Standard-Schwelle) |
+| Regime-Confidence | Gate-Kaskade-Verhalten |
+|-------------------|----------------------|
+| < 0.5 | Kein Entry (Regime = UNCERTAIN) — unabhaengig von Gates |
+| 0.5 -- 0.7 | Gate-Kaskade MUSS bestanden sein UND Confidence beider Seiten >= erhoehte Schwelle |
+| > 0.7 | Gate-Kaskade MUSS bestanden sein (Standard-Schwellen) |
 
 ### 5.4 Scale-In / Add
 
@@ -148,11 +149,11 @@ Add MUSS zusaetzlich:
 Re-Entry nur wenn:
 
 - State = `FLAT_INTRADAY` oder Position stark reduziert
-- `cycleCounter < maxCycles`
+- `cycleCounter < maxCyclesPerInstrumentPerDay`
 - Beide Keys stimmen zu (`ALLOW_REENTRY` bzw. `ALLOW_ENTRY`)
 - 10m Confirmation unterstuetzt (oder mindestens nicht widerspricht)
 - Cooling-Off abgelaufen (min. 15 Minuten)
-- Vorheriger Zyklus profitabel (Profit-Gate)
+- Vorheriger Cycle profitabel (Profit-Gate)
 - Verbleibendes Risk-Budget erlaubt minimale Position (Budget-Gate)
 
 ---
@@ -327,7 +328,7 @@ create table if not exists bt_regime_eval (
 | Trail-Faktor: Profit-Protection vs. LLM | Engerer Wert gewinnt: `min(PP, LLM)` |
 | Exit: Hard-Risk vs. Soft-Exit | Hard-Risk immer zuerst, LLM-unabhaengig |
 | Subregime: KPI vs. LLM | Konservativeres Subregime gewinnt |
-| Entry bei niedrigem Confidence | Erhoehte Quant-Score-Schwelle |
+| Entry bei niedrigem Confidence | Erhoehte Confidence-Schwellen, Gate-Kaskade obligatorisch |
 
 ---
 
@@ -343,7 +344,8 @@ Die folgenden Beispiele zeigen die konzeptionellen JSON-Strukturen fuer die drei
   "quant_regime_confidence": 0.74,
   "quant_vote": "ALLOW_ENTRY",
   "quant_vote_confidence": 0.68,
-  "quant_score": 0.62,
+  "gates_passed": true,
+  "failed_gates": [],
   "hard_veto_flags": [],
   "features": {
     "ext_vwap_atr": 0.4,
@@ -364,7 +366,8 @@ Die folgenden Beispiele zeigen die konzeptionellen JSON-Strukturen fuer die drei
 | `quant_regime_confidence` | Float [0.0--1.0] | Confidence des KPI-Regimes |
 | `quant_vote` | Enum: `STRONG_ENTRY`, `ALLOW_ENTRY`, `NO_TRADE`, `HOLD`, `EXIT_SOON`, `EXIT_NOW` | Primaere Empfehlung |
 | `quant_vote_confidence` | Float [0.0--1.0] | Confidence des Quant-Votes |
-| `quant_score` | Float [0.0--1.0] | Gewichteter Gesamtscore |
+| `gates_passed` | Boolean | Alle Gates der Gate-Kaskade bestanden — Ja/Nein-Schwellen pro Indikator, alle muessen bestanden sein (Details in 03-strategy-logic.md) |
+| `failed_gates` | Set von Enums | Liste der nicht bestandenen Gates (leer wenn `gates_passed = true`). Beispiele: `RSI_OVERBOUGHT`, `SPREAD_TOO_WIDE`, `VOLUME_INSUFFICIENT` |
 | `hard_veto_flags` | Set von Enums | Harte Vetos (z.B. `WARMUP_INCOMPLETE`, `DQ_VIOLATION`, `OVERBOUGHT`) |
 | `features` | Object | Berechnete KPI-Features fuer Logging und Nachvollziehbarkeit |
 
@@ -416,7 +419,7 @@ Die folgenden Beispiele zeigen die konzeptionellen JSON-Strukturen fuer die drei
   "symbol": "XYZ",
   "time": "2026-02-21T14:33:00Z",
   "size_profile": "STARTER",
-  "order_policy": "LIMIT_IN_ZONE",
+  "tactic": "WAIT_PULLBACK",
   "reason_codes": ["SETUP_A_PULLBACK", "TREND_UP_CONFIRMED"],
   "constraints": {"max_chase_r": 0.2}
 }
@@ -430,6 +433,8 @@ Die folgenden Beispiele zeigen die konzeptionellen JSON-Strukturen fuer die drei
 | `symbol` | String | Instrument-Identifier |
 | `time` | ISO-8601 Timestamp | MarketClock-Zeitstempel der Entscheidung |
 | `size_profile` | Enum: `STARTER`, `ADD`, `FULL` | Positionsgroessen-Profil |
-| `order_policy` | Enum: `LIMIT_IN_ZONE`, `MARKET`, `STOP_LIMIT` | Order-Typ-Empfehlung |
+| `tactic` | Enum: `WAIT_PULLBACK`, `BREAKOUT_FOLLOW`, `NO_TRADE` | LLM-Taktik — OMS bestimmt den konkreten Entry-Preis deterministisch aus Struktur-Levels (siehe 07-oms-execution.md, Abschnitt 3.2) |
 | `reason_codes` | String[] | Maschinenlesbare Begruendungen (ReasonCode-Taxonomie) |
 | `constraints` | Object | Optionale Einschraenkungen (z.B. max. Chase-Distanz in R) |
+
+> **Hinweis:** Das LLM liefert keine konkreten Preisfelder (`entry_price_zone`, `target_price`). Der Entry-Preis wird vom OMS deterministisch aus Struktur-Levels bestimmt (Pre-Market High/Low, Prior Day Close/High/Low, erste 1m-Bar, Gap-Fill-Level, runde Zahlen). Die `tactic` des LLM impliziert, welches Struktur-Level relevant ist.

@@ -39,15 +39,43 @@ SUBMITTED → REJECTED
 
 | Situation | Order-Typ | Details |
 |-----------|----------|---------|
-| **Normal Entry** | Limit Order | Repricing alle 5s (max. 3 Zyklen). Preis = `entry_price_zone.ideal` |
-| **Entry nach 15s ohne Fill** | Cancel/Replace | Neuer Limit-Preis = min(aktueller Ask, `entry_price_zone.max`). Max. 3 Cancel/Replace-Zyklen |
+| **Normal Entry** | Limit Order | Repricing alle 5s (max. 3 Zyklen). Preis = OMS-berechnetes Struktur-Level (siehe Abschnitt 3.2) |
+| **Entry nach 15s ohne Fill** | Cancel/Replace | Neuer Limit-Preis = min(aktueller Ask, OMS-Limit-Obergrenze). Max. 3 Cancel/Replace-Zyklen |
 | **Entry nach 3 Zyklen ohne Fill** | Abandon | Kein Entry. State zurueck auf SEEKING_ENTRY |
 | **Normal Exit (Tranchen)** | Limit Order | Preis = aktueller Bid. Repricing alle 5s |
 | **Forced Close (15:45+ ET)** | Market Order | Position MUSS geschlossen werden |
 | **Kill-Switch** | Market Order | Notfall-Schliessung, keine Limit-Logik |
 | **Stop-Loss** | Stop-Limit | Stop-Trigger = Stop-Level, Limit = Stop - 0.1%. Fallback: Stop-Market nach 5s |
 
-### 3.2 Market-Order-Policy (Normativ)
+### 3.2 Entry-Preis-Bestimmung durch OMS (Normativ)
+
+Das LLM liefert **keine** konkreten Preisfelder (`entry_price_zone`, `target_price`). Stattdessen liefert es:
+
+- **Setup-Typ** (Enum)
+- **Taktik** (`WAIT_PULLBACK` / `BREAKOUT_FOLLOW` / `NO_TRADE`)
+- **Urgency** (Enum)
+
+Das OMS bestimmt den Entry-Preis **deterministisch** aus Struktur-Levels:
+
+| Struktur-Level | Quelle |
+|---------------|--------|
+| Pre-Market High / Low | Aus Pre-Market-Daten (odin-data) |
+| Prior Day Close / High / Low | Historische Tagesdaten |
+| Erste 1m-Bar High / Low | Nach Close der ersten RTH-Kerze |
+| Gap-Fill-Level | Berechnet aus Prior Close vs. Open |
+| Runde Zahlen / psychologische Levels | Deterministisch berechnet (z.B. 100, 150, 200) |
+
+**Taktik-zu-Level-Mapping:**
+
+| LLM-Taktik | OMS-Entry-Logik |
+|------------|----------------|
+| `WAIT_PULLBACK` | Entry bei Ruecklauf zum naechstgelegenen Support-Level (z.B. VWAP, Prior Close, Pre-Market Low) |
+| `BREAKOUT_FOLLOW` | Entry ueber dem Breakout-Level (z.B. Pre-Market High, Prior Day High) mit Limit knapp ueber Ausbruchsniveau |
+| `NO_TRADE` | Kein Entry — Intent wird nicht erzeugt |
+
+Die OMS-Limit-Obergrenze ergibt sich aus dem naechsthoeherem Struktur-Level plus konfigurierbarem Puffer. Repricing darf diese Obergrenze nicht ueberschreiten.
+
+### 3.3 Market-Order-Policy (Normativ)
 
 Market Orders sind **AUSSCHLIESSLICH** erlaubt bei:
 
@@ -73,28 +101,51 @@ Der Stop-Loss ist als Stop-Limit konfiguriert (Stop-Trigger mit 0.1% Limit-Offse
 
 ---
 
-## 5. Bracket-Logik (Normativ)
+## 5. Entry-Order und Post-Fill Exit Split (Normativ)
 
-Nach erfolgreichem Entry-Fill MUSS das OMS **atomar** ausfuehren:
+### 5.1 Single Entry Order
 
-1. **Schutzstop** platzieren (gesamte Restposition)
-2. **Target-Orders** platzieren (je Tranche eine separate Limit-Sell-Order)
-3. **Trailing-Policy** aktivieren
+Der Entry erfolgt als **EINE einzelne Order** (Limit Order, siehe Abschnitt 3.1/3.2). Es wird NICHT vorab in Tranchen aufgeteilt.
+
+### 5.2 Post-Fill Exit Split (OCA-Gruppen pro Tranche)
+
+Erst **nach dem Entry-Fill** splittet das OMS die Position in separate **OCA-Exit-Gruppen pro Tranche**. Jede OCA-Gruppe besteht aus genau einem Target und einem Stop -- bei einem Fill storniert IB serverseitig automatisch die andere Order der Gruppe. Dadurch gibt es keine Race Condition.
+
+**Beispiel (3-Tranchen-Modell, 100 Shares gesamt):**
+
+| OCA-Gruppe | Target (Limit Sell) | Stop (Stop-Market) | Shares |
+|------------|--------------------|--------------------|--------|
+| OCA-1 | Target 1 @ 1R | Stop 1 @ -1R | 40 (40%) |
+| OCA-2 | Target 2 @ 2R | Stop 2 @ -1R | 40 (40%) |
+| OCA-3 | Runner-Target @ weit (z.B. 5R) | Trailing Stop 3 | 20 (20%) |
+
+**Ablauf nach Entry-Fill:**
+
+1. OMS berechnet Tranchen-Aufteilung (gemaess Profil aus Abschnitt 6)
+2. OMS platziert **atomar** alle OCA-Gruppen beim Broker
+3. Bei **Target-Fill** einer OCA-Gruppe: IB storniert serverseitig den zugehoerigen Stop — keine manuelle Synchronisation noetig
+4. Bei **Stop-Trigger** einer OCA-Gruppe: IB storniert serverseitig das zugehoerige Target
+5. Trailing-Policy wird fuer die Runner-Tranche (OCA-3) aktiviert
 
 > "Atomar" heisst: im EventLog als zusammenhaengender Schritt; bei Fehlern Recovery-Mechanismus.
 
-### 5.1 Kein OCA fuer Stop/Target-Kombination
+**Vorteile gegenueber einem globalen Stop:**
 
-- **Stop-Loss-Order:** Immer als eigenstaendige Stop-Order auf die **gesamte Restposition**. NICHT in einer OCA-Gruppe mit Targets. GTC beim Broker (ueberlebt Crash). Wird bei jedem Teil-Exit auf die verbleibende Stueckzahl angepasst (Reduce-Only)
-- **Target-Orders:** Jede Tranche als separate Limit-Sell-Order mit exakter Stueckzahl. Targets sind untereinander unabhaengig (keine OCA). Werden durch OMS-Logik verwaltet, nicht durch Broker-seitige Gruppenlogik
+- **Keine Race Condition:** Broker-seitige OCA-Logik garantiert, dass bei einem Target-Fill nur der zugehoerige Stop storniert wird (nicht der Stop fuer andere Tranchen)
+- **Unabhaengige Tranchen:** Jede Tranche hat ihr eigenes R/R-Profil. Tranche 1 kann bei 1R geschlossen werden, waehrend der Runner weiterlaeuft
+- **Crash-Sicherheit:** Alle Orders sind GTC beim Broker — ueberleben einen ODIN-Crash
 
-**Begruendung:** OCA wuerde bei einem Target-Fill den Stop canceln -- das waere fatal. Die Synchronisation zwischen Stop und Targets erfolgt ausschliesslich ueber die interne OMS-Logik, die nach jedem Fill-Event atomar die Restposition und offene Orders abgleicht.
+### 5.3 Stop-Nachfuehrung bei OCA-Gruppen
 
-### 5.2 Stop/Target-Konsistenz-Invariante
+Wenn der Trail-Stop nachgefuehrt wird (Abschnitt 10), MUSS das OMS die Stops aller noch offenen OCA-Gruppen konsistent aktualisieren. Der effektive Stop-Level wird zentral berechnet, aber per Modify-Order in jeder OCA-Gruppe angepasst.
+
+**Sonderfall TRAIL_ONLY:** Bei aktiver TRAIL_ONLY-Policy (Abschnitt 7) werden alle Target-Orders storniert. Die OCA-Gruppenlogik wird aufgeloest — es verbleibt ein einzelner Trailing-Stop auf die gesamte Restposition.
+
+### 5.4 Stop/Target-Konsistenz-Invariante
 
 Es MUSS zu jedem Zeitpunkt gelten:
 
-> "Wenn Position > 0, dann existiert ein wirksamer Schutzmechanismus" (Broker-Stop oder interner Stop + sofortige Exit-Policy)
+> "Wenn Position > 0, dann existiert ein wirksamer Schutzmechanismus" (Broker-Stop in mindestens einer aktiven OCA-Gruppe oder interner Stop + sofortige Exit-Policy)
 
 ---
 
@@ -136,7 +187,7 @@ Wenn `target_policy = TRAIL_ONLY` vom LLM geliefert wird, MUSS das OMS:
 
 - Repricing alle **5 Sekunden** in Richtung NBBO
 - Max. **3 Cancel/Replace-Zyklen** pro Order
-- Repricing DARF `entry_price_zone.max` NICHT ueberschreiten
+- Repricing DARF die OMS-Limit-Obergrenze (naechstes Struktur-Level + Puffer) NICHT ueberschreiten
 - Wenn nach max. Zyklen kein Fill: **Abandon** (Intent zurueck an Arbiter)
 
 ### 8.2 Repricing-Degradation
@@ -159,11 +210,12 @@ Die Degradation wird im Audit-Log protokolliert. Parameter normalisieren sich au
 
 | Event | OMS-Reaktion |
 |-------|-------------|
-| **Target-Tranche gefuellt** | Stop-Quantity auf Restposition reduzieren. Stop-Preis ggf. anpassen (Tranche 1 → Break-Even). Alle verbleibenden Targets behalten ihre Stueckzahl |
-| **Stop getriggert** | Alle offenen Target-Orders sofort stornieren. Position ist geschlossen |
-| **Partial Fill auf Target** | OMS trackt gefuellte vs. offene Menge. Stop-Quantity auf Restposition anpassen. Kein neuer Target-Order fuer Restbetrag der Tranche |
+| **Target-Tranche gefuellt** | IB storniert serverseitig den zugehoerigen Stop der OCA-Gruppe. OMS aktualisiert interne Position. Verbleibende OCA-Gruppen bleiben unveraendert aktiv |
+| **Stop einer OCA-Gruppe getriggert** | IB storniert serverseitig das zugehoerige Target der OCA-Gruppe. OMS aktualisiert interne Position. Wenn alle OCA-Gruppen geschlossen: Position = FLAT |
+| **Alle Stops getriggert** | Position ist vollstaendig geschlossen. Alle verbleibenden Target-Orders werden geprueft (sollten durch OCA bereits storniert sein) |
+| **Partial Fill auf Target** | OMS trackt gefuellte vs. offene Menge innerhalb der OCA-Gruppe. Kein neuer Target-Order fuer Restbetrag der Tranche |
 | **Partial Fill auf Stop** | Verbleibende Stop-Menge + alle Targets sofort als **Market-Order** schliessen (Notfall-Fall) |
-| **Partial Fill auf Entry** | Position mit Teilmenge weiterverwalten. Rest stornieren nach 30s. Stops und Targets proportional anpassen |
+| **Partial Fill auf Entry** | Position mit Teilmenge weiterverwalten. Rest stornieren nach 30s. OCA-Exit-Gruppen proportional auf Teilmenge anpassen |
 
 ### 9.2 Idempotenz-Regel
 
@@ -172,6 +224,14 @@ OMS MUSS **idempotent** sein: Doppelte Fill-Events duerfen keine doppelte Positi
 ### 9.3 Broker-Rejections
 
 Broker-Rejections werden als **CRITICAL Alert** behandelt, insbesondere wenn die Position ungeschuetzt ist (kein aktiver Stop). In diesem Fall: sofortige Eskalation, Retry begrenzt, ggf. Kill-Switch.
+
+### 9.4 Partial Fills im Backtest (Bekannte Limitation)
+
+Partial Fills sind im Backtest **nicht modelliert**. Dies ist eine bewusste Entscheidung fuer V1:
+
+- **Praktische Relevanz:** Bei den typischerweise gehandelten Instrumenten (populaere High-Beta-Aktien zu regulaeren Handelszeiten / RTH) sind Partial Fills praktisch irrelevant. Die Liquiditaet dieser Aktien uebersteigt die ODIN-Positionsgroessen um Groessenordnungen
+- **Live-Monitoring:** Im Live-Betrieb werden Partial-Fill-Events ueber das Audit-Log erfasst und koennen im Monitoring ausgewertet werden (Haeufigkeit, betroffene Instrumente, Auswirkung auf Execution-Qualitaet)
+- **Backtest-Modellierung:** Keine Backtest-Modellierung fuer V1. Sollte sich im Live-Betrieb zeigen, dass Partial Fills bei bestimmten Instrumenten oder Marktphasen relevant werden, kann ein Partial-Fill-Modell nachgeruestet werden
 
 ---
 
@@ -208,27 +268,42 @@ Der `effectiveStop` wird per **Modify-Order** an den Broker gesendet. Die Highwa
 
 ---
 
-## 12. Multi-Cycle OMS-Handling (Normativ)
+## 12. Begriffshierarchie und Multi-Cycle OMS-Handling (Normativ)
+
+### 12.0 Begriffshierarchie: Trade, Cycle, Tranche
+
+| Begriff | Definition | Beispiel |
+|---------|-----------|---------|
+| **Trade** | Erste Eroeffnung bis vollstaendige Schliessung einer Position in einem Instrument | Long AAPL 10:15 -- 14:30 |
+| **Cycle** | Neuer Trade im selben Instrument am selben Tag (nach komplettem Exit und Re-Entry) | Trade 1 (10:15--12:00), Trade 2 = Cycle 2 (13:00--14:30) |
+| **Tranche** | Teilstueck innerhalb eines Trades -- sowohl beim Aufstocken (Add) als auch beim Teilverkauf (Scale-Out) | 100 Shares Entry + 50 Shares Add = 2 Tranchen |
+
+**Limits:**
+
+- `maxCyclesPerInstrumentPerDay` — begrenzt Re-Entries im selben Instrument
+- `maxTranchesPerTrade` — begrenzt Aufstockungen innerhalb eines Trades
+
+### 12.1 Multi-Cycle Regeln
 
 | Aspekt | Regelung |
 |--------|---------|
 | **Cycle-Counter** | Pro Pipeline, `cycleNumber` in Events |
-| **Unabhaengige Trades** | Jeder Zyklus = eigenstaendiger Trade mit eigenen Stops, Targets, P&L |
-| **Positionsgroessen** | Zyklus 2+: Sizing beruecksichtigt verbrauchtes Tagesbudget |
-| **Re-Entry** | Neuer Trade nach komplettem Exit (FLAT_INTRADAY → SEEKING_ENTRY) |
-| **Aufstocken (Scale-Up)** | Add-to-Position bei bestehender Position. Aufgestockter Teil hat eigenen Entry-Preis und Entry-ATR |
+| **Unabhaengige Trades** | Jeder Cycle = eigenstaendiger Trade mit eigenen Stops, Targets, P&L |
+| **Positionsgroessen** | Cycle 2+: Sizing beruecksichtigt verbrauchtes Tagesbudget |
+| **Re-Entry** | Neuer Trade (= neuer Cycle) nach komplettem Exit (FLAT_INTRADAY → SEEKING_ENTRY) |
+| **Aufstocken (Scale-Up)** | Add-to-Position bei bestehender Position. Zaehlt als **neue Tranche** im selben Trade, NICHT als neuer Cycle |
 
-### 12.1 Scale-Up OMS-Implikationen
+### 12.2 Scale-Up OMS-Implikationen (Tranchen-basiert)
 
 | Aspekt | Verhalten |
 |--------|-----------|
-| **Order-Typ** | Add-to-Position (keine neue Trade-Eroeffnung) |
-| **Entry-Preis** | Aufgestockter Teil hat eigenen Entry-Preis |
-| **Entry-ATR** | Aufgestockter Teil verwendet ATR zum Zeitpunkt des Aufstockens |
-| **Trailing-Stop** | Neue Shares: eigener Entry-ATR als Trail-Basis. Bestehende Shares (Runner): unveraenderter Entry-ATR aus Zyklus 1 |
+| **Order-Typ** | Add-to-Position (keine neue Trade-Eroeffnung, sondern neue Tranche im bestehenden Trade) |
+| **Entry-Preis** | Aufgestockte Tranche hat eigenen Entry-Preis |
+| **Entry-ATR** | Aufgestockte Tranche verwendet ATR zum Zeitpunkt des Aufstockens |
+| **Trailing-Stop** | Neue Shares: eigener Entry-ATR als Trail-Basis. Bestehende Shares (Runner): unveraenderter Entry-ATR aus der urspruenglichen Tranche |
 | **P&L-Berechnung** | Pro Tranche (unterschiedliche Entry-Preise) |
-| **Risk-Budget** | Realisierter P&L aus Zyklus 1 wird beruecksichtigt |
-| **Cycle-Counter** | Aufstocken zaehlt als eigener Zyklus |
+| **Risk-Budget** | Realisierter P&L aus vorherigen Cycles wird beruecksichtigt |
+| **Cycle-Counter** | Aufstocken veraendert den Cycle-Counter **NICHT** — nur ein Re-Entry nach komplettem Exit erzeugt einen neuen Cycle |
 
 ---
 
