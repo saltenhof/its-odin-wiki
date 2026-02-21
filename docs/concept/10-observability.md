@@ -329,7 +329,17 @@ Die vier Eskalationsstufen MUESSEN implementiert sein:
 | **3. Operator-Eingriff** | System pausiert, wartet auf manuellen Eingriff | Safe-Mode nach Crash, LULD ueber Close |
 | **4. Notfall-Shutdown** | System wird komplett gestoppt, alle Positionen geschlossen | EMERGENCY-Level: Cannot Liquidate, System-Crash |
 
-### 8.3 Runbooks
+### 8.3 Prozess-Tod: Alerting vor Auto-Restart
+
+Bei System-Ausfall (Prozess-Tod, Heartbeat-Timeout) gilt folgende Prioritaet:
+
+1. **Operator-Notification (hoechste Prioritaet):** SMS, Push-Notification oder E-Mail an den Operator. Ein informierter Operator ist wertvoller als ein automatischer Neustart in unbekanntem Zustand. Die Notification MUSS innerhalb von 30 Sekunden nach erkanntem Prozess-Tod erfolgen.
+
+2. **Automatischer Restart (nachgelagert):** Erst nach erfolgreicher Operator-Notification darf ein automatischer Neustart versucht werden — und nur im Position-Management-Only Recovery Mode (keine neuen Entries, nur Reconciliation und Positionsschutz). Siehe Kapitel 11, Abschnitt 4.10 fuer Details zum Crash-Recovery-Zielbild.
+
+> **V1:** In der Anfangsphase ueberwacht der Operator das System aktiv. Die Operator-Notification bei Prozess-Tod ist das Minimum, das vor dem Live-Betrieb implementiert sein MUSS. Automatischer Restart ist eine nachgelagerte Entwicklungsstufe.
+
+### 8.4 Runbooks
 
 Fuer jeden Alert-Typ SOLL ein dokumentiertes Runbook mit Schritt-fuer-Schritt-Anleitung zur Diagnose und Behebung existieren.
 

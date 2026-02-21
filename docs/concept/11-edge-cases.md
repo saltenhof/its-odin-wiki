@@ -210,13 +210,42 @@ ODIN operiert in einem Umfeld, in dem Markt-Extremsituationen, Infrastruktur-Aus
 
 ### 4.10 System-Neustart bei offener Position
 
+#### V1-Schutz (aktuell)
+
+> **Nachgelagerte Entwicklungsstufe.** In der Anfangsphase ueberwacht der Operator das System aktiv. Automatisches Recovery ist ein Zielbild fuer spaetere Versionen.
+
 | Aspekt | Beschreibung |
 |--------|--------------|
-| **Sofort-Schutz** | GTC-Stops beim Broker schuetzen offene Positionen automatisch (unabhaengig vom ODIN-Prozess) |
+| **Sofort-Schutz** | GTC-Stops beim Broker schuetzen offene Positionen automatisch (unabhaengig vom ODIN-Prozess). Dies ist die primaere Sicherheitsschicht bei Prozess-Tod |
+| **Operator** | Der Operator sitzt waehrend des Handels aktiv vor dem System und kann bei Prozess-Tod manuell eingreifen (Broker-UI, TWS) |
 | **Neustart** | WinSW startet den Prozess automatisch neu. Startup-Recovery erkennt Crash-Zustand |
 | **Safe-Mode** | System startet in Safe-Mode (kein Trading, nur Dashboard-Anzeige) |
 | **Naechster Tag** | Flat-Check Reconciliation: Positionen aus Broker-API lesen, mit internem State abgleichen. Offene Positionen aus dem Vortag identifizieren und schliessen. Erst nach erfolgreicher Reconciliation: normaler Handel |
-| **Kein Intraday-Restart** | ODIN ist in v1 NICHT intraday-restartable fuer Trading. Bei Crash waehrend des Tages: Safe-Mode bis zum naechsten Tag |
+| **Kein Intraday-Restart** | ODIN ist in V1 NICHT intraday-restartable fuer Trading. Bei Crash waehrend des Tages: Safe-Mode bis zum naechsten Tag |
+
+#### Zielbild: Crash-Recovery (spaetere Entwicklungsstufe)
+
+Das langfristige Ziel ist ein mehrstufiges Recovery-Konzept:
+
+**1. Externer Watchdog-Prozess:**
+
+- Eigenstaendiger, leichtgewichtiger Prozess, der den ODIN-Hauptprozess ueberwacht (Heartbeat/PID-Monitoring)
+- Erkennt Prozess-Tod innerhalb weniger Sekunden
+
+**2. Operator-Alerting (hoechste Prioritaet):**
+
+- Watchdog alertiert den Operator bei Prozess-Tod ueber SMS, Push-Notification oder E-Mail
+- Operator-Notification hat hoehere Prioritaet als automatischer Restart — ein informierter Operator kann schneller und sicherer reagieren als ein automatischer Neustart in unbekanntem Zustand
+
+**3. Optionaler automatischer Neustart:**
+
+- Watchdog kann (konfigurierbar) einen Neustart des ODIN-Prozesses versuchen
+- Neustart erfolgt ausschliesslich im **Position-Management-Only Recovery Mode**:
+    - Keine neuen Entries
+    - Offene Positionen erkennen (Reconciliation mit IB-Broker-API)
+    - Bestehende GTC-Stops aktiv halten und bei Bedarf nachziehen
+    - Forced Close vor EOD sicherstellen (Flat-Garantie)
+- Neustart-Versuche sind begrenzt (max. 2 innerhalb von 5 Minuten), danach nur noch Alerting
 
 ---
 
@@ -420,7 +449,7 @@ Die folgende Tabelle konsolidiert alle Edge Cases aus allen Quelldokumenten:
 | 15 | **Partial Fill auf Entry** | Nicht komplett nach 30s | Rest stornieren, Teilposition weiter, proportionale Anpassung | INFO |
 | 16 | **Partial Fill auf Stop** | Stop nur teilweise gefuellt | NOTFALL: Rest + Targets sofort Market schliessen | CRITICAL |
 | 17 | **Duplicate Fills** | orderId + eventSeq bereits verarbeitet | Idempotent verwerfen | INFO |
-| 18 | **System-Neustart bei offener Position** | Recovery-Check bei Start | Safe-Mode. GTC-Stops schuetzen. Naechster Tag: Reconciliation | CRITICAL |
+| 18 | **System-Neustart bei offener Position** | Recovery-Check bei Start / Watchdog erkennt Prozess-Tod | V1: GTC-Stops + Operator-Eingriff. Zielbild: Watchdog alertiert Operator + optionaler Recovery Mode (Position-Management-Only, keine neuen Entries). Naechster Tag: Reconciliation | CRITICAL |
 | 19 | **Bull Trap / Reclaim ohne Follow-Through** | Setup invalidiert | Initial-Stop schuetzt. Kein Re-Entry fuer dieses Pattern | INFO |
 | 20 | **Fakeout am Apex** (Setup C) | Preis kehrt in Formation zurueck | Exit bei Reentry. Cooldown | INFO |
 | 21 | **Zu tiefer Pullback / Lower-Low** | Lower-Low statt Higher-Low | Sofortiger Exit, OBSERVING | INFO |

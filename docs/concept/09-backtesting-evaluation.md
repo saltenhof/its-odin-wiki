@@ -104,13 +104,70 @@ Dasselbe Kostenmodell MUSS in allen Simulationsstufen verwendet werden:
 | **Slippage** | Basis: 1 Tick ueber Spread fuer Entries, 0.5 Tick fuer Exits. Bei Volumen < 50.000/Tag: 2 Ticks. Proxy: `slippage = base_slippage + k x ATR x volatility_factor` |
 | **Shock Slippage** | Bei Crash/Spike Events: Slippage-Faktor erhoehen |
 | **FX-Kosten** | 0.002% (IB-typischer FX-Spread) |
-| **Partial Fills** | Nicht modelliert in Backtest (erst in Klein-Live mit echten Fills) |
+| **Partial Fills** | Nicht modelliert — siehe bekannte Limitationen (Abschnitt 5.1) |
+
+### 5.1 Bekannte Limitation: Partial Fills im Backtest
+
+Partial Fills werden im Backtest nicht modelliert — es wird immer ein vollstaendiger Fill angenommen. Bei den typischerweise gehandelten Instrumenten (populaere High-Beta-Aktien zu regulaeren Handelszeiten) ist dies praktisch irrelevant, da die Liquiditaet fuer die gehandelten Positionsgroessen ausreichend ist.
+
+Die tatsaechliche Auswirkung von Partial Fills wird im **Live-Monitoring** beobachtet (siehe Kapitel 10, Abschnitt 10: Market Surveillance). Keine Backtest-Modellierung fuer V1.
+
+**Abgrenzung:** Im Live-Betrieb werden Partial Fills vollstaendig behandelt (siehe Kapitel 11, Abschnitt 4.8: Partial Fills). Die Limitation betrifft ausschliesslich die Backtest-Simulation.
 
 ---
 
-## 6. Bewertungsmetriken (geometrisch priorisiert)
+## 6. Datenqualitaet und Daten-Hygiene (Normativ)
 
-### 6.1 Primaermetriken (entscheidend)
+> **Quellen:** Unified-Concept v2.1 (12.2 Daten-Hygiene), Build-Spec v3.0 (49.4 Corporate Actions Handling)
+
+### 6.1 Corporate Actions
+
+- **Splits und Reverse-Splits:** OHLCV-Historien MUESSEN split-adjustiert sein (Preis UND Volumen). Nicht-adjustierte Daten fuehren zu falschen ATR-Werten, falschen Breakout-Signalen und fehlerhaftem Position Sizing.
+- **Dividenden:** Fuer Intraday-Backtesting auf Tagesbasis vernachlaessigbar (kein Overnight-Holding). Ex-Dividend-Gaps am Tagesopen werden durch das Fill-Modell (kein Signal-Bar-Fill) abgefangen.
+- **Konsistenz:** Die Adjustierung MUSS zwischen Backtest und Live identisch sein. Wenn der Datenanbieter adjustiert, muss dieselbe Adjustierungsmethode dokumentiert und fixiert werden.
+
+### 6.2 Survivorship Bias
+
+- Backtesting-Universen SOLLEN delistete und uebernommene Aktien enthalten (wenn verfuegbar), um Survivorship Bias zu minimieren.
+- Wenn nur ueberlebende Symbole verfuegbar sind: Dokumentieren und als bekannte Limitation im Run-Report ausweisen (Feld `notes` in `bt_run`).
+
+### 6.3 Timezone und Kalender
+
+- Alle Timestamps in **US/Eastern** (Exchange-Time) oder **UTC** mit dokumentiertem Offset
+- Handelstage: NYSE/NASDAQ-Kalender (keine Wochenenden, Feiertage, fruehe Schliessungen beruecksichtigen)
+- Halts: Fehlende Bars innerhalb RTH werden durch DQ-Gates erkannt (siehe Challenger S13)
+
+---
+
+## 7. Datenstufen im Backtest (Normativ)
+
+### 7.1 Datenstufen-Tagging
+
+Jeder Backtest-Run wird mit seiner Datenstufe getaggt. Die Stufe bestimmt, welche Marktdaten dem Backtest zur Verfuegung stehen:
+
+| Datenstufe | Beschreibung | Verfuegbarkeit |
+|------------|-------------|----------------|
+| **OHLCV_ONLY** | Standard. Nur OHLCV-Bars (1m/3m/10m). Keine Bid/Ask-Spreads, kein Level-2 | Immer verfuegbar (historische Daten) |
+| **BASIC_QUOTES** | Mit aufgezeichneten Bid/Ask-Daten. Ermoeglicht realistischere Spread-Modellierung | Nur wenn im Live-Betrieb aufgezeichnet |
+| **L2_DEPTH** | Mit aufgezeichneten Level-2-Orderbuchdaten. Ermoeglicht Liquiditaetsanalyse und praezisere Fill-Modellierung | Nur wenn im Live-Betrieb aufgezeichnet |
+
+### 7.2 Zentrale Regel: Datenkonsistenz
+
+**Alpha-Signale duerfen nur auf Daten basieren, die auch im Backtest desselben Laufs verfuegbar waren.** Ein Signal, das auf Bid/Ask-Spreads basiert, darf nicht in einem OHLCV_ONLY-Backtest verwendet werden — auch wenn es im Live-Betrieb verfuegbar waere.
+
+Backtest-Ergebnisse verschiedener Datenstufen duerfen **nicht direkt verglichen** werden. Sie muessen als separate Runs mit explizitem Datenstufen-Tag gefuehrt werden, da unterschiedliche Datengrundlagen die Ergebnisse strukturell beeinflussen.
+
+### 7.3 Recording-Modus (Live → Backtest)
+
+Wenn Bid/Ask- oder L2-Daten im Live-Betrieb verfuegbar sind, SOLLEN diese aufgezeichnet werden, um spaetere Backtests mit reicheren Daten fuettern zu koennen. Dieses Recording baut ueber Zeit eine zunehmend detailliertere Datenbasis auf und ermoeglicht schrittweise den Uebergang von OHLCV_ONLY zu BASIC_QUOTES und spaeter L2_DEPTH.
+
+Die Recording-Konfiguration wird pro Instrument festgelegt und im Run-Metadaten-Feld `global_config` dokumentiert.
+
+---
+
+## 8. Bewertungsmetriken (geometrisch priorisiert)
+
+### 8.1 Primaermetriken (entscheidend)
 
 | Metrik | Formel/Definition |
 |--------|------------------|
@@ -120,7 +177,7 @@ Dasselbe Kostenmodell MUSS in allen Simulationsstufen verwendet werden:
 | **Tail-Loss Frequency** | Anteil Tage mit Return < -X% (z.B. -2 Sigma oder feste Schwelle) |
 | **Recovery Time** | Dauer vom Drawdown-Start bis zum Recovery auf vorheriges Peak |
 
-### 6.2 Sekundaermetriken
+### 8.2 Sekundaermetriken
 
 - Profit Factor, Hit Rate, Payoff Ratio
 - MAE/MFE pro Trade, Giveback (MFE vs. realized)
@@ -130,7 +187,7 @@ Dasselbe Kostenmodell MUSS in allen Simulationsstufen verwendet werden:
 - "Overtrade Score": Unnoetige Trades in Chop
 - "Safety Score": Verhalten in Crash/Halt Szenarien
 
-### 6.3 Geometric Score (Ranking-Funktion)
+### 8.3 Geometric Score (Ranking-Funktion)
 
 ```
 S = mean(ln(1 + r_d)) - lambda x |ES_95(ln(1 + r_d))| - mu x |MDD|
@@ -148,32 +205,32 @@ S = mean(ln(1 + r_d)) - lambda x |ES_95(ln(1 + r_d))| - mu x |MDD|
 
 ---
 
-## 7. Scenario-Buckets (OHLCV-only, konfigurierbar)
+## 9. Scenario-Buckets (OHLCV-only, konfigurierbar)
 
 Jeder Handelstag wird in Buckets klassifiziert. Bucket-Labeling erfolgt deterministisch aus OHLCV-Daten.
 
-### 7.1 Opening Shock Down
+### 9.1 Opening Shock Down
 
 - Innerhalb der ersten 10 Minuten: `drawdown_from_open <= -4%` ODER (`<= -3%` UND `vol_ratio >= 3.0`)
 
-### 7.2 Parabolic + Plateau + Fade
+### 9.2 Parabolic + Plateau + Fade
 
 1. **Run-up frueh:** `time_of_day(high_of_day) <= open + 120min` UND (`run = (HOD - Open) / Open >= 0.04` ODER `run >= 0.60 x ADR14`)
 2. **Plateau:** Ab `t_high` mindestens 30 Minuten, in denen `rolling_range_30m <= 0.8 x ATR10m(t_high)` (seitwaerts nahe Hoch)
 3. **Fade / Giveback:** `giveback = (HOD - Close) / (HOD - Open) >= 0.60` UND letzter 60-Min-Return negativ: `Close - Close(t_close-60m) <= -0.5 x ATR10m`
 
-### 7.3 Compression → Breakout
+### 9.3 Compression → Breakout
 
 1. **Compression-Phase (mind. 60 Min):** `compression_range / baseline_range <= 0.35` UND `ATR10m_slope_60m < 0`
 2. **Breakout-Impuls (innerhalb 30 Min):** `breakout_move >= 1.5 x ATR10m` UND `vol_ratio_10m >= 1.8`
 
-### 7.4 VWAP Whipsaw (Chop um VWAP)
+### 9.4 VWAP Whipsaw (Chop um VWAP)
 
 - `cross_count_120m >= 8` (Signwechsel von close-vwap auf 3m Bars)
 - `ADX10m <= 15`
 - `abs(Close - Open) <= 0.25 x ADR14`
 
-### 7.5 Trend Day Grind Up
+### 9.5 Trend Day Grind Up
 
 Monotoner Aufwaertstrend ueber den gesamten Handelstag mit wenig Pullbacks. Dieser Bucket repraesentiert den idealen Trend-Day-Fall, in dem das System den Trend reiten und den Runner moeglichst lange halten SOLL.
 
@@ -191,12 +248,12 @@ Monotoner Aufwaertstrend ueber den gesamten Handelstag mit wenig Pullbacks. Dies
 - Unterschied zu Parabolic+Plateau+Fade: Kein fruehes HOD, kein Plateau, kein Giveback
 - Unterschied zu Compression→Breakout: Kein Kompressionsmuster, sondern stetiger Anstieg von Anfang an
 
-### 7.6 Halt/Resume Proxy
+### 9.6 Halt/Resume Proxy
 
 - Fehlende Bars / grosse Gaps innerhalb der Session
 - Keine Updates > 5 Minuten waehrend RTH
 
-### 7.7 Bucket-Report
+### 9.7 Bucket-Report
 
 Fuer jeden Bucket wird separat reported:
 
@@ -207,27 +264,27 @@ Fuer jeden Bucket wird separat reported:
 
 ---
 
-## 8. Walk-Forward Validation (Normativ)
+## 10. Walk-Forward Validation (Normativ)
 
-### 8.1 Splits
+### 10.1 Splits
 
 - **Trainingsperiode:** 60 Handelstage
 - **Validierungsperiode:** 20 Handelstage
 - **Schrittweite:** 20 Tage (Rolling Window)
 - **Kriterium:** Parameter MUESSEN in mindestens **3 von 4** aufeinanderfolgenden Validierungsperioden profitabel sein UND Risk-Metriken innerhalb Limits liegen
 
-### 8.2 Was wird kalibriert?
+### 10.2 Was wird kalibriert?
 
 - Nur Schwellen/Parameter, die **alle Varianten teilen** (z.B. Crash-Thresholds, ATR-Decay)
 - LLM-Arbitrations-Schwellen (`min_conf`) duerfen variieren, aber MUESSEN per Walk-Forward auf Out-of-Sample optimiert werden
 
-### 8.3 Keine Varianten-Optimierung im Test
+### 10.3 Keine Varianten-Optimierung im Test
 
 Parameter werden pro Fold nur auf dem Train-Fenster gewaehlt und dann fix auf Test angewandt.
 
 ---
 
-## 9. Stress-Tests (Normativ)
+## 11. Stress-Tests (Normativ)
 
 Fuer jede Variante zusaetzlich:
 
@@ -243,7 +300,7 @@ Fuer jede Variante zusaetzlich:
 
 ---
 
-## 10. Ablation Tests (Normativ)
+## 12. Ablation Tests (Normativ)
 
 MUSS mindestens auswerten:
 
@@ -255,20 +312,20 @@ Ziel: Mehrwert des LLM objektiv messen.
 
 ---
 
-## 11. Statistische Vergleichsmethodik
+## 13. Statistische Vergleichsmethodik
 
-### 11.1 Paired Day Comparison
+### 13.1 Paired Day Comparison
 
 - Gleiche Tage, gleiche Symbole → Differenz der Daily-Log-Returns pro Tag
 - Reporte: Mittel/Median der Differenzen, 5/50/95-Perzentile
 
-### 11.2 Bootstrap
+### 13.2 Bootstrap
 
 - Block Bootstrap ueber Tage (um Autokorrelation zu respektieren)
 - Wahrscheinlichkeit, dass Unified > MC nach Score (Posterior/Bootstrap)
 - Nicht nur Signifikanz, sondern **Effektgroesse + Tail-Verhalten**
 
-### 11.3 Power-Abschaetzung
+### 13.3 Power-Abschaetzung
 
 Fuer Paired Day Test (`alpha=5%, Power 80%`):
 
@@ -281,7 +338,7 @@ Fuer Paired Day Test (`alpha=5%, Power 80%`):
 
 ---
 
-## 12. Entscheidungslogik: Gate-Kaskade (Stakeholder-Entscheidung)
+## 14. Entscheidungslogik: Gate-Kaskade (Stakeholder-Entscheidung)
 
 ### Gate 0 -- Safety (hart, geometrisch)
 
@@ -307,7 +364,7 @@ Wenn keine statistische Signifikanz, dann in Reihenfolge:
 
 ---
 
-## 13. Release-Gate Pipeline (Normativ)
+## 15. Release-Gate Pipeline (Normativ)
 
 | Stufe | Modus | Dauer | Kriterium |
 |-------|-------|-------|-----------|
@@ -320,9 +377,9 @@ Jede Stufe hat **Abbruchkriterien** (Drawdown, Incident-Rate, Unexpected Failure
 
 ---
 
-## 14. Challenger-Suite: 20 Intraday-Szenarien (Normativ)
+## 16. Challenger-Suite: 20 Intraday-Szenarien (Normativ)
 
-### 14.1 Testformat
+### 16.1 Testformat
 
 Jeder Challenger definiert:
 
@@ -332,7 +389,7 @@ Jeder Challenger definiert:
 - **Erwartete Safety-Reaktionen:** Stop-Updates, Degradation, EOD flat
 - **Pass/Fail-Kriterien:** Deterministische Bedingungen (nicht nur P&L)
 
-### 14.2 Die 20 Szenarien
+### 16.2 Die 20 Szenarien
 
 | # | Szenario | Detection (Kurz) | Erwartetes Verhalten |
 |--:|----------|-----------------|---------------------|
@@ -357,7 +414,7 @@ Jeder Challenger definiert:
 | **S19** | Kein Entry vormittags (DOWN), Trendwechsel nachmittags | Setup D aktiv | 10m Confirmation verhindert zu fruehes "Catch the falling knife" |
 | **S20** | End-of-Day Squeeze → Reversal | Late Ramp + Reversal | Neue Entries nach Cutoff blockiert. Offene Position geschuetzt/geschlossen (EOD flat) |
 
-### 14.3 Regression Report
+### 16.3 Regression Report
 
 Jeder Challenger erzeugt:
 
@@ -368,9 +425,9 @@ Jeder Challenger erzeugt:
 
 ---
 
-## 15. Testplan (Given/When/Then) mit Postgres-Backend
+## 17. Testplan (Given/When/Then) mit Postgres-Backend
 
-### 15.1 Testgruppen
+### 17.1 Testgruppen
 
 1. Data Integrity & Resampling (T1--T3)
 2. Determinismus & Replay inkl. LLM Cache (T4--T6)
@@ -380,7 +437,7 @@ Jeder Challenger erzeugt:
 6. Challenger Suite (20 Szenarien)
 7. Geometrische KPI-Auswertung (SQL-Checks)
 
-### 15.2 Kerntests
+### 17.2 Kerntests
 
 | Test | Given | When | Then |
 |------|-------|------|------|
@@ -404,9 +461,9 @@ Jeder Challenger erzeugt:
 
 ---
 
-## 16. Datenbank-Schema (Normativ)
+## 18. Datenbank-Schema (Normativ)
 
-### 16.1 Kernschema (9 Tabellen)
+### 18.1 Kernschema (9 Tabellen)
 
 ```sql
 -- 1) Datensatz-Registry
@@ -426,6 +483,7 @@ create table if not exists bt_run (
   run_id bigserial primary key,
   dataset_id bigint not null references bt_dataset(dataset_id),
   engine_version text not null,
+  data_tier text not null default 'OHLCV_ONLY', -- OHLCV_ONLY | BASIC_QUOTES | L2_DEPTH
   created_at timestamptz not null default now(),
   notes text,
   global_config jsonb not null
@@ -539,15 +597,15 @@ create table if not exists bt_day_bucket (
 );
 ```
 
-### 16.2 FusionLab-Tabellen
+### 18.2 FusionLab-Tabellen
 
 Siehe Kapitel 08 (Symmetric Hybrid Protocol) fuer `bt_ground_truth` und `bt_regime_eval`.
 
 ---
 
-## 17. SQL-Auswertungen (Referenz)
+## 19. SQL-Auswertungen (Referenz)
 
-### 17.1 Geometric Mean Daily Return
+### 19.1 Geometric Mean Daily Return
 
 ```sql
 select v.variant_id, min(v.variant_name) as variant,
@@ -557,7 +615,7 @@ group by v.variant_id
 order by geo_mean_daily_return desc;
 ```
 
-### 17.2 Geometric Score S
+### 19.2 Geometric Score S
 
 ```sql
 with base as (
@@ -591,7 +649,7 @@ group by v.variant_id, b.avg_log, es.es95, mdd.max_dd
 order by score_s desc;
 ```
 
-### 17.3 Paired Day Comparison (MC vs Unified)
+### 19.3 Paired Day Comparison (MC vs Unified)
 
 ```sql
 with mc as (
@@ -609,7 +667,7 @@ order by mc.trading_date;
 
 ---
 
-## 18. LLM-Kosten-Optimierung (stufenweise)
+## 20. LLM-Kosten-Optimierung (stufenweise)
 
 ### Phase 0 -- Ohne LLM (billig, schnell)
 
