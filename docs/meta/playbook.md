@@ -158,6 +158,85 @@ Das fachliche Konzept liegt in `intraday-agent-concept.md` (v1.5). Das Architekt
 
 ---
 
+## User-Story-Umsetzung: Execution-Regeln (verbindlich, ab 2026-02-21)
+
+Diese Regeln gelten fuer alle User-Story-Implementierungen und Remediations. Sie ergaenzen und praezisieren Abschnitt 7 der User-Story-Spezifikation (`docs/meta/user-story-specification.md`).
+
+### Orchestrator-Rolle (Primary Claude)
+
+Der Primary Claude **implementiert nichts selbst**. Er:
+- Startet Agents mit klar definierten Auftraegen und Quellverweisen
+- Empfaengt nur binaere Rueckmeldungen (Pass / Fail / Eskalation)
+- Haelt seinen Kontext sauber — keine Implementierungsdetails, keine Dateiinhalte
+
+### Agent-Typen
+
+| Typ | Aufgabe | Ergebnis |
+|-----|---------|---------|
+| **Implementierungs-Agent** | Story implementieren oder Findings beheben | Code committed + gepusht |
+| **QS-Agent** | DoD pruefen, Findings dokumentieren | Datei geschrieben + binaeres Signal |
+
+### Parallelisierung
+
+- **Maximal 3 Agents gleichzeitig** — Implementierungs- und QS-Agents zaehlen zusammen
+- Alle Agents laufen im **Background-Mode** (Primary bleibt responsiv)
+- Verschiedene Module koennen parallel bearbeitet werden; gleiches Modul sequenziell
+
+### Implement → QS → Loop
+
+```
+fuer jede Story:
+  runde = 1
+  LOOP:
+    starte Implementierungs-Agent (Background)
+    warte auf Abschluss
+    starte QS-Agent (Background)
+    warte auf binaeres Signal:
+      PASS → commit (durch QS-Agent) → Story abgeschlossen → BREAK
+      FAIL und runde < 3 → runde++ → LOOP (neuer Implementierungs-Agent)
+      FAIL und runde == 3 → ESKALATION → Primary unterbricht, User einbeziehen
+```
+
+### QS-Agent: Pflichten
+
+1. **Alle DoD-Kriterien** pruefen (gemaess `user-story-specification.md`)
+2. **Findings** in Datei schreiben: `temp/userstories/<STORY-ID>/qa-report-r<N>.md`
+   - N = Rundennummer (r1, r2, r3)
+   - Format: Strukturierte Maengelliste mit Schwere (Bug / Konzepttreue / Prozess / Minor)
+3. **Nur binaeres Signal** an Primary zurueckgeben: `PASS` oder `FAIL`
+4. Bei `PASS`: Story committen und pushen (einmaliger Commit mit aussagekraeftiger Message)
+5. Bei `FAIL`: Findings-Datei ist bereits geschrieben — kein Detail an Primary
+
+### Implementierungs-Agent bei Remediation
+
+- Liest `qa-report-r<N-1>.md` (Findings der vorherigen Runde)
+- Behebt alle Findings vollstaendig
+- Committe und pushe nach Abschluss
+
+### Prompt-Struktur (Pflichtbestandteile fuer jeden Agent)
+
+Jeder Agent-Prompt muss enthalten:
+1. Verweis auf `story.md` (Story-Definition + Akzeptanzkriterien)
+2. Verweis auf `user-story-specification.md` (vollstaendige DoD)
+3. Verweis auf `CLAUDE.md` (Coding-Regeln, Architektur)
+4. Verweis auf relevante Konzeptdateien (aus `docs/concept/`)
+5. Verweis auf relevante Architekturkapitel (aus `docs/backend/architecture/`)
+6. Verweis auf `qa-report-r<N>.md` (bei Remediation-Agents)
+7. Explizite Rundennummer (damit QS-Agent den richtigen Dateinamen waehlt)
+
+### Hard Gate
+
+Nach **3 erfolglosen Runden** (QS-Agent meldet 3x FAIL) wird der Zyklus unterbrochen.
+Primary Claude informiert den User mit:
+- Story-ID
+- Anzahl Runden
+- Pfad zur letzten Findings-Datei (`qa-report-r3.md`)
+- Empfehlung fuer naechste Schritte
+
+Der User entscheidet dann, ob und wie der Zyklus fortgesetzt wird.
+
+---
+
 ## Hinweise fuer Context-Recovery
 
 Wenn du nach einem Context-Reset hier landest:
