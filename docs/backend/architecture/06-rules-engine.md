@@ -39,7 +39,7 @@ Dieses Kapitel beschreibt die deterministische Rules Engine und den Decision Loo
 
 ### Trigger
 
-Der primaere Trigger fuer den Decision Loop ist der **Bar-Close** eines 1-Minuten Decision-Bars (Kap 0, §6; Kap 2; Kap 4). Ticks aktualisieren den Buffer und Trailing-Stops, loesen aber keinen vollstaendigen Decision-Cycle aus.
+Der primaere Trigger fuer den Decision Loop ist der **Bar-Close** eines Decision-Bars (3m oder 5m, parametrisierbar via `odin.data.decision-bar-timeframe-s`; Kap 0, §6; Kap 2; Kap 4). Ticks und 1m-Bar-Closes aktualisieren den Buffer und Trailing-Stops, loesen aber keinen vollstaendigen Decision-Cycle aus. Der 1m-Event-Detektor emittiert bei extremen Moves (> 6% Spike) ein `MonitorEvent` — dieser triggert keinen Decision-Cycle, kann aber einen asynchronen LLM-Refresh ausloesen.
 
 ### Bar-Close-Barrier (Determinismus-Garantie)
 
@@ -52,7 +52,7 @@ Der Decision Loop laeuft **single-threaded pro Pipeline** (Kap 0, §6). Es gibt 
 ### Flow
 
 ```
-Bar-Close Event (1-Minute Decision-Bar)
+Bar-Close Event (Decision-Bar: 3m oder 5m)
   │
   ├── Voraussetzung: Bar-Close-Barrier (vorheriger Cycle abgeschlossen)
   │
@@ -149,7 +149,7 @@ Das LLM liefert `regime` + `regimeConfidence` im `LlmAnalysis`-Record (Kap 5, §
 ### Regime-Wechsel-Erkennung
 
 1. KPI-Indikatoren zeigen Richtungswechsel (z.B. EMA-Kreuzung, VWAP-Durchbruch)
-2. **Confirmation Lag:** Erst nach **zwei aufeinanderfolgenden Bar-Closes** (1-Minute Decision-Bars) mit konsistentem neuen Regime
+2. **Confirmation Lag (Regime-Hysterese):** Erst nach **zwei aufeinanderfolgenden Decision-Bar-Closes** (3m oder 5m) mit konsistentem neuen Regime. Die fruehere 10m-Confirmation-Loop entfaellt — die Hysterese wird vollstaendig ueber konsekutive Decision-Bars abgebildet
 3. Bei LLM-Widerspruch: konservatives Regime (wie oben)
 4. Event-Trigger (VWAP-Durchbruch, Volumen-Spike) → Rules Engine emittiert einen **LLM-Refresh-Request** an den `LlmAnalystOrchestrator` (fire-and-forget, async). Der Orchestrator entscheidet ob ein Call abgesetzt wird (Single-Flight, Kap 5 §7). Der Request traegt `runId` + `barCloseTime` als Correlation
 5. Bei bestaetigtem Wechsel: Pruefung ob bestehende Position zum neuen Regime passt

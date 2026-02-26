@@ -8,7 +8,7 @@
 
 Das System verwendet ein fuenfstufiges Regime-Modell als gemeinsames Vokabular fuer QuantEngine, LLM und Arbiter. Jedes Regime wird als Label mit Confidence (0.0–1.0) gefuehrt.
 
-| Regime | KPI-Kriterien (3m Decision-Frame) | Taktik (Long-Only) |
+| Regime | KPI-Kriterien (Decision-Bar-Frame: 3m oder 5m) | Taktik (Long-Only) |
 |--------|----------------------------------|---------------------|
 | **TREND_UP** | EMA(9) > EMA(21) AND Preis > VWAP AND ADX > 20 (konfigurierbar) | Trend-Following: Pullbacks zum VWAP kaufen, Trailing-Stop, Gewinne laufen lassen |
 | **TREND_DOWN** | EMA(9) < EMA(21) AND Preis < VWAP AND ADX > 20 (konfigurierbar) | Default: Nicht handeln. Aggressive Mode (Config OFF): RSI < 25, Volume > 2x SMA, halbe Position |
@@ -46,9 +46,10 @@ Haeufige Regime-Wechsel ("Flipping") fuehren zu Overtrading und schlechten Entsc
 
 **Regel (Normativ):** Ein Regime-Wechsel wird erst akzeptiert, wenn:
 
-- **Normalfall:** 2 aufeinanderfolgende 3m-Bar-Closes mit konsistentem neuem Regime
-- **10m-Bestaetigung:** 2 aufeinanderfolgende 10m-Bars konsistent ODER 1x 10m + 1x CRITICAL Event
+- **Normalfall:** 2 aufeinanderfolgende Decision-Bar-Closes mit konsistentem neuem Regime
 - **Ausnahme:** Ein Crash-Event (`CRASH_DOWN`, `SPIKE_UP`) KANN sofort `HIGH_VOLATILITY` erzwingen, ohne die Zwei-Bar-Regel abzuwarten
+
+**Anmerkung:** Die fruehere 10m-Confirmation-Loop ist entfallen (Stakeholder-Entscheidung 2026-02-26). Die Regime-Hysterese wird vollstaendig auf Decision-Bar-Ebene geloest.
 
 **Ziel:** Nicht bei jedem VWAP-Cross oder kurzfristigen Noise flippen.
 
@@ -73,7 +74,7 @@ Es existieren drei konzeptionell verschiedene Ansaetze zur Regime-Bestimmung. We
 
 - QuantEngine und LLM liefern beide ein Regime-Label mit Confidence
 - Der Arbiter fusioniert deterministisch (Dual-Key)
-- 10m-Confirmation wirkt als zusaetzliches Gate
+- Decision-Bar-Hysterese wirkt als zusaetzliches Gate
 - Bei Widerspruch: konservativeres Regime
 
 **Vorteil:** LLM kann Regime-Uebergaenge frueher erkennen (z.B. "Plateau ist Distribution" vs. "Plateau ist Pause").
@@ -95,7 +96,7 @@ Es existieren drei konzeptionell verschiedene Ansaetze zur Regime-Bestimmung. We
 
 Unabhaengig vom gewaehlten Fusionsansatz gelten folgende harte Regeln:
 
-- `TREND_DOWN` bestaetigt auf 10m MUSS neue Entries blockieren
+- `TREND_DOWN` bestaetigt (2x Decision-Bars) MUSS neue Entries blockieren
 - DQ-Risk MUSS neue Entries blockieren
 - Crash-Event KANN sofort `HIGH_VOLATILITY` erzwingen
 
@@ -221,7 +222,7 @@ Diese Cost-Matrix ist der Kern, um FusionLab als Proxy fuer geometrische Robusth
 
 ### 6.5 FusionLab-Vorteil: Viele Samples
 
-FusionLab hat einen entscheidenden praktischen Vorteil: Pro Tag gibt es viele 3-Minuten-Entscheidungspunkte (typisch 80-100 pro Instrument). Damit stehen deutlich mehr Datenpunkte zur Verfuegung als bei der P&L-basierten Evaluation (1 Datenpunkt pro Tag). Fusion-Verbesserungen koennen statistisch schneller nachgewiesen werden, bevor sie in P&L "bewiesen" werden muessen.
+FusionLab hat einen entscheidenden praktischen Vorteil: Pro Tag gibt es viele Entscheidungspunkte auf Decision-Bar-Ebene (typisch 80-130 pro Instrument bei 3m-Bars, 50-80 bei 5m-Bars). Damit stehen deutlich mehr Datenpunkte zur Verfuegung als bei der P&L-basierten Evaluation (1 Datenpunkt pro Tag). Fusion-Verbesserungen koennen statistisch schneller nachgewiesen werden, bevor sie in P&L "bewiesen" werden muessen.
 
 ---
 
@@ -242,21 +243,21 @@ FusionLab hat einen entscheidenden praktischen Vorteil: Pro Tag gibt es viele 3-
 | Max. Positionsgroesse | 25% Tageskapital (halbe Standardgroesse) |
 | Mindest-RSI | < 25 (extrem ueberverkauft) |
 | Mindest-Volumen | Volume-Spike > 2x Durchschnitt |
-| Max. Haltedauer | 15 Bars (bei 3m = 45 Minuten) |
+| Max. Haltedauer | 15 Decision-Bars (bei 3m = 45 Minuten, bei 5m = 75 Minuten) |
 | Stops | Enger als Standard |
 
 ---
 
-## 8. Day-Type-Flags (10m-Ebene)
+## 8. Day-Type-Flags (Decision-Bar-Ebene)
 
-Neben den lokalen Regime-Labels fuehrt das System Day-Type-Flags, die aus 10m-Confirmation + Volatilitaetsmassen erzeugt werden:
+Neben den lokalen Regime-Labels fuehrt das System Day-Type-Flags, die aus der Decision-Bar-Historie und Volatilitaetsmassen erzeugt werden:
 
 | Day-Type | Heuristik | Strategische Konsequenz |
 |----------|-----------|------------------------|
-| `TREND_DAY_UP` | Preis >= 3 10m-Bars ueber VWAP, EMA(20) 10m steigt, ADX(14) 10m > Schwelle | Setup A/C bevorzugt |
+| `TREND_DAY_UP` | Preis >= 3 aufeinanderfolgende Decision-Bars ueber VWAP, EMA(20) steigt, ADX(14) 5m > Schwelle | Setup A/C bevorzugt |
 | `TREND_DAY_DOWN` | Analog invers | Kein Trading (Long-only) |
 | `RANGE_DAY` | ADX niedrig, haeufige VWAP-Crossings | Setup B/D bevorzugt, Entry-Gates restriktiv |
-| `HIGH_VOL_DAY` | Range/ATR im 10m Frame ueber Schwelle | Sizing reduziert, Profit Protection frueher, FAST Scale-Out |
+| `HIGH_VOL_DAY` | Range/ATR auf 5m-Frame ueber Schwelle | Sizing reduziert, Profit Protection frueher, FAST Scale-Out |
 
 ### Setup x Regime Matrix
 

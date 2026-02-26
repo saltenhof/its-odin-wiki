@@ -51,7 +51,7 @@ ODIN operiert in einem Umfeld, in dem Markt-Extremsituationen, Infrastruktur-Aus
 | Aspekt | Beschreibung |
 |--------|--------------|
 | **Erkennung** | Event: `FLUSH_DETECTED` (Range > 2x ATR, Close nahe Low). Dann: `RECLAIM_CONFIRMED` (Close ueber VWAP + EMA-Cluster) |
-| **Reaktion** | Setup B: Starter-Entry erst NACH Reclaim. Add erst nach Higher-Low-Bestaetigung + 10m Confirmation nicht DOWN |
+| **Reaktion** | Setup B: Starter-Entry erst NACH Reclaim. Add erst nach Higher-Low-Bestaetigung + Regime-Hysterese nicht DOWN |
 | **Schutz** | Kein "Averaging Down" in den Flush. shockLockout blockiert Entry waehrend des Falls |
 
 ### 2.5 Halt / LULD Pause
@@ -384,7 +384,7 @@ Ohne spezielle Halt-Daten wird ein Halt indirekt erkannt:
 
 | Aspekt | Beschreibung |
 |--------|--------------|
-| **Schutz** | Re-Entry erfordert: RECLAIM_CONFIRMED + Higher-Low + 10m Confirmation nicht DOWN + Quant Score >= Threshold + LLM nicht VETO/CAUTION |
+| **Schutz** | Re-Entry erfordert: RECLAIM_CONFIRMED + Higher-Low + Regime-Hysterese nicht DOWN + Quant Score >= Threshold + LLM nicht VETO/CAUTION |
 | **Sizing** | Cycle 2+: Reduzierte Positionsgroesse (Default 60--80% des Standards) |
 | **Profit-Protection** | Fruehere Profit-Protection bei Cycle 2+ |
 

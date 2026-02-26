@@ -33,9 +33,9 @@ Das System betreibt 1--3 isolierte Pipelines parallel. Jede Pipeline handelt gen
 | Richtung | Long only | Kein Short |
 | Instrumenttyp | Aktien | Keine Derivate |
 | Datenbasis | 1-Min OHLCV + Volume (Minimum) | Konfigurierbar via `odin.data.subscriptions` (OHLCV_ONLY / BASIC_QUOTES / L2_DEPTH) |
-| Rohsignal | 1m | Monitoring-Ebene |
-| Quant-Decision-Frame | 3m | Resampled, weniger Noise |
-| Confirmation-Frame | 10m | Trend-/Regime-Hysterese, Fakeout-Filter |
+| Rohsignal / Event-Detektor | 1m | Monitoring-Ebene: NUR extreme/ueberproportionale Moves (+/-6% Spike). KEIN normaler Decision-Layer |
+| Decision-Layer | 3m oder 5m (parametrisierbar) | Hauptlage-Beurteilung: Entry/Exit/Teilverkaeufe. Praeférenz 3m fuer High-Beta, 5m fuer Standard |
+| Fixe KPI-Timeframe | immer 5m | ATR(14), ADX(14), RSI(14) — IMMER auf 5m, unabhaengig vom Decision-Layer |
 | Handelszeiten | Pre-Market + RTH | Exchange-konfigurierbar |
 | Autonomie | Vollautomatisch | Mit manuellen Controls (Pause/Kill) |
 | EOD-Flat | MUSS | Keine Overnight-Position |
@@ -200,7 +200,7 @@ Das LLM bringt die adaptive Intelligenz fuer Situationsbeurteilung. Die Determin
 ### 6.1 Schichtenmodell
 
 1. **Datenschicht (Data Layer)**
-   - Marktdaten empfangen, validieren (DQ-Gates), puffern (Rolling Buffers), Resampling (1m -> 3m/10m), Event-Emission
+   - Marktdaten empfangen, validieren (DQ-Gates), puffern (Rolling Buffers), Resampling (1m -> 3m/5m), Event-Emission
    - VWAP ist Source-of-Truth ausschliesslich in der Datenschicht
 
 2. **Entscheidungsschicht (Brain Layer)**
@@ -283,15 +283,23 @@ Die vollstaendige Spezifikation der Regime-Detection, FusionLab-Varianten (F0-F3
 
 ---
 
-## 8. Timeframe-Entscheidung (Stakeholder-Entscheidung)
+## 8. Drei-Layer-Timeframe-Architektur (Stakeholder-Entscheidung 2026-02-26)
 
-| Timeframe | Rolle | Begruendung |
-|-----------|-------|-------------|
-| **1-Minute** | Rohsignal + Monitoring | Schnelle Ereigniserkennung (Crash, Spike, Exhaustion Climax, Strukturbruch) |
-| **3-Minute** | Quant-Decision-Frame | Weniger Noise als 1m, bessere Stabilitaet fuer Entry/Exit-Entscheidungen |
-| **10-Minute** | Bestaetigung/Hysterese | Trend-Quercheck, Fakeout-Filter, Regime-Persistenz |
+| Layer | Timeframe | Zweck |
+|-------|-----------|-------|
+| **Event-Detektor** | **1m** | NUR extreme/ueberproportionale Moves (+/-6% Spike). KEIN normaler Trend-Decision-Layer, KEIN Whipsaw-Trading. "Gefahr in Verzug"-Layer fuer scharfe, schnelle Reaktion |
+| **Decision-Layer** | **3m oder 5m (parametrisierbar)** | Hauptlage-Beurteilung. Entry/Exit/Teilverkaeufe. Praeferenz fuer High-Beta-Aktien (z.B. IREN): 3m. Standard: 5m |
+| **Fixe KPI-Timeframe** | **immer 5m** | ATR(14), ADX(14), RSI(14) — IMMER auf 5m berechnet, unabhaengig vom Decision-Layer-Timeframe. Standard-Indikatoren werden nicht neu definiert |
 
-Zielkonflikt (Noise vs. Latenz) wird durch **Hierarchie** geloest statt durch "eine perfekte Bargroesse". Die 3m-Ebene ist der primaere Decision-Takt; 1m liefert Events, 10m liefert Bestaetigung.
+**Was das bedeutet:**
+
+- Der Decision Loop wird durch den Close einer Decision-Bar (3m oder 5m, parametrisierbar via `odin.data.decision-bar-timeframe-s`) getriggert — nicht durch 1m-Bar-Close
+- 1m-Bars laufen parallel als Monitoring-Layer fuer Extreme-Event-Detection (Crash, Spike, Exhaustion)
+- ATR, ADX, RSI sind IMMER auf 5m-Bars berechnet — auch wenn der Decision-Layer auf 3m laeuft
+- EMA(9), EMA(21) werden auf Decision-Bars berechnet (3m oder 5m)
+- Die 10m-Confirmation-Loop aus dem alten Konzept **entfaellt**. Regime-Hysterese wird durch Confirmation-Lag auf Decision-Bars geloest (2 aufeinanderfolgende Decision-Bars mit konsistentem neuem Regime)
+
+Zielkonflikt (Noise vs. Latenz) wird durch **Drei-Layer-Hierarchie** geloest: 1m fuer Events, Decision-Bars fuer Entscheidungen, 5m fuer stabile KPIs.
 
 ---
 
@@ -332,7 +340,7 @@ Limit: `maxTranchesPerTrade` (konfigurierbar). Begrenzt die Komplexitaet des Pos
 | ADR14 | Average Daily Range ueber 14 Tage |
 | ATR | Average True Range -- Mass fuer Volatilitaet, berechnet ueber N Perioden |
 | Cycle | Erneuter Trade im selben Instrument am selben Tag. Position komplett geschlossen -> neu eroeffnet = neuer Cycle (siehe Abschnitt 9) |
-| Decision-Bar | 3-Minuten-Bar als primaerer Decision-Trigger |
+| Decision-Bar | Bar im Decision-Layer-Timeframe (3m oder 5m, parametrisierbar) als primaerer Decision-Trigger |
 | EOD-Flat | End-of-Day Flat -- alle Positionen am Tagesende geschlossen |
 | FSM | Finite State Machine -- Zustandsmaschine |
 | GTC | Good-Til-Cancel -- Order bleibt aktiv bis explizit storniert |

@@ -69,7 +69,7 @@ Die Variante wird per Konfiguration (`odin.simulation.feed-mode=TICK|BAR`) gewae
                     │ MarketEvent-Stream (Ticks, L2, Bars)
                     v
             ┌───────────────────────┐
-            │     BarBuilder        │   ← Baut Decision-Bars (1m) aus Ticks
+            │     BarBuilder        │   ← Baut 1m-Bars aus Ticks
             └───────────┬───────────┘
                         │ (Bars + validierte Ticks)
                         v
@@ -98,32 +98,43 @@ Die Variante wird per Konfiguration (`odin.simulation.feed-mode=TICK|BAR`) gewae
 Die zentrale Klasse `DataPipelineService` orchestriert den Datenfluss:
 
 1. **Empfang:** Registriert sich als Listener beim `MarketDataFeed`-Port
-2. **Bar-Erzeugung:** Leitet Tick-Events an den `BarBuilder` (1-Minute Decision-Bar)
+2. **Bar-Erzeugung:** Leitet Tick-Events an den `BarBuilder` (1-Minute-Bars)
 3. **Validierung:** Leitet Bars und Ticks durch die DQ-Gate-Chain
 4. **Pufferung:** Schreibt validierte Daten in den `RollingDataBuffer`
-5. **Aggregation:** Triggert Aggregationen bei Bar-Abschluss (1m → 5m → 15m → 30m)
-6. **Snapshot:** Erzeugt bei Decision-Trigger (1m-Bar-Close) einen `MarketSnapshot` via `MarketSnapshotFactory`
-7. **EventLog:** Schreibt BarClose + Snapshot-Referenz ins EventLog (non-droppable)
-8. **Quiescence:** Meldet dem Orchestrator (odin-core) „drained bis sequence X / bar t"
-9. **Events:** Publiziert `MarketSnapshotEvent` an registrierte Listener (Brain, Monitoring)
+5. **Aggregation:** Triggert Aggregationen bei Bar-Abschluss (1m → 3m → 5m → 15m → 30m)
+6. **1m-Event-Detektor:** Prueft bei jedem 1m-Bar-Close auf extreme Events (Spike/Crash > 6%, Volume-Anomalien). Emittiert `MonitorEvent` — kein Decision-Trigger
+7. **Decision-Trigger:** Erzeugt bei Decision-Bar-Close (3m oder 5m, parametrisierbar via `odin.data.decision-bar-timeframe-s`) einen `MarketSnapshot` via `MarketSnapshotFactory`
+8. **EventLog:** Schreibt BarClose + Snapshot-Referenz ins EventLog (non-droppable)
+9. **Quiescence:** Meldet dem Orchestrator (odin-core) „drained bis sequence X / bar t"
+10. **Events:** Publiziert `MarketSnapshotEvent` an registrierte Listener (Brain, Monitoring)
 
 ---
 
 ## 4. BarBuilder
 
-Der `BarBuilder` erzeugt die **Decision-Bar** (primaerer Decision-Trigger) aus eingehenden Tick-Events.
+Der `BarBuilder` erzeugt **1-Minute-Bars** aus eingehenden Tick-Events. Diese 1m-Bars sind die Grundlage fuer die Aggregation zu hoeheren Timeframes (3m, 5m) und den 1m-Event-Detektor.
 
 | Parameter | Default | Beschreibung |
 |-----------|---------|-------------|
-| Decision-Bar-Timeframe | 1 Minute | Konfigurierbar (`odin.data.decision-bar-timeframe-s=60`) |
+| Base-Bar-Timeframe | 1 Minute | Nicht konfigurierbar — 1m ist die feste Basisgranularitaet |
+| Decision-Bar-Timeframe | 3 Minuten (180s) | Konfigurierbar (`odin.data.decision-bar-timeframe-s=180`). Erlaubte Werte: 180 (3m) oder 300 (5m) |
 | Bar-Boundary | MarketClock-basiert | Bar schliesst bei vollem Minute-Wechsel (MarketClock, Exchange-TZ) |
 
 **Funktionsweise:**
-- Sammelt Ticks innerhalb des aktuellen Bar-Fensters
-- Bei Bar-Close (MarketClock): erzeugt OHLCV-Bar (Open = erster Tick, High = max, Low = min, Close = letzter Tick, Volume = sum)
+- Sammelt Ticks innerhalb des aktuellen 1m-Bar-Fensters
+- Bei 1m-Bar-Close (MarketClock): erzeugt OHLCV-Bar (Open = erster Tick, High = max, Low = min, Close = letzter Tick, Volume = sum)
+- 1m-Bars werden in den Buffer geschrieben und triggern die Aggregation (1m → 3m → 5m)
 - Im **Bar-Replay-Modus** (Simulation): BarBuilder wird umgangen, Bars kommen direkt vom Feed
 
-> **Decision-Trigger = 1-Minute-Bar-Close.** Ticks aktualisieren den Buffer und Trailing-Stops, loesen aber keinen vollstaendigen Decision-Cycle aus. 5-Sekunden-Micro-Bars werden fuer interne Metriken erzeugt (kein Decision-Trigger, keine DQ-Validierung, kein EventLog).
+> **Drei-Layer-Timeframe-Architektur:**
+>
+> | Layer | Timeframe | Trigger |
+> |-------|-----------|---------|
+> | **Event-Detektor** | 1m | Jeder 1m-Bar-Close: Pruefung auf extreme Moves (+/-6% Spike, Volume-Anomalien). Emittiert `MonitorEvent`, kein Decision-Cycle |
+> | **Decision-Layer** | 3m oder 5m (parametrisierbar) | Decision-Bar-Close: Vollstaendiger Decision-Cycle (KPI → Rules → Quant → Arbiter → Risk → OMS) |
+> | **Fixer KPI-Timeframe** | immer 5m | ATR(14), ADX(14), RSI(14) werden IMMER auf 5m-Bars berechnet, unabhaengig vom Decision-Layer-Timeframe |
+>
+> Ticks aktualisieren den Buffer und Trailing-Stops, loesen aber keinen Decision-Cycle aus. 5-Sekunden-Micro-Bars werden fuer interne Metriken erzeugt (kein Decision-Trigger, keine DQ-Validierung, kein EventLog).
 
 ---
 
@@ -200,11 +211,14 @@ Der Buffer ist ein **In-Memory Ringpuffer** mit mehreren Granularitaetsstufen:
 
 | Stufe | Granularitaet | Kapazitaet | Quelle | Prefill |
 |-------|--------------|------------|--------|---------|
-| Decision-Bar | 1-Minute-Bars | Letzte 6 Stunden | BarBuilder (aus Ticks) | **Kein Prefill** — entsteht ab Live-/Replay-Start |
-| 5-Min | 5-Minuten-Bars | Gesamter Handelstag | Aggregation aus Decision-Bar | **Kein Prefill** — entsteht ab Live-/Replay-Start |
+| 1-Min | 1-Minute-Bars | Letzte 6 Stunden | BarBuilder (aus Ticks) | **Kein Prefill** — entsteht ab Live-/Replay-Start |
+| 3-Min | 3-Minuten-Bars | Gesamter Handelstag | Aggregation aus 1-Min | **Kein Prefill** — entsteht ab Live-/Replay-Start |
+| 5-Min | 5-Minuten-Bars | Gesamter Handelstag | Aggregation aus 1-Min (IMMER aktiv fuer fixe KPIs: ATR, ADX, RSI) | **Kein Prefill** — entsteht ab Live-/Replay-Start |
 | 15-Min | 15-Minuten-Bars | Gesamter Handelstag + 5 Vortage | Aggregation aus 5-Min | **Kein Prefill** — entsteht ab Live-/Replay-Start (Vortage via Historical Init) |
 | 30-Min | 30-Minuten-Bars | Letzte 5 Handelstage | Init via Historical Data | Prefill beim Init |
 | Daily | Tages-Bars | Letzte 20 Handelstage | Init via Historical Data | Prefill beim Init |
+
+> **Decision-Bar = 3m oder 5m:** Je nach Konfiguration (`odin.data.decision-bar-timeframe-s`) dient entweder die 3m- oder 5m-Stufe als Decision-Bar. Beide Stufen werden IMMER aggregiert — die Konfiguration bestimmt nur, welche den Decision-Cycle triggert.
 
 > **Keine Disaggregation:** 30-Min-Bars werden **nicht** in 15m/5m/1m zurueckgerechnet. Die feingranularen Buffer (1m, 5m, 15m) fuer den aktuellen Tag werden ausschliesslich aus Live-/Replay-Daten aufgebaut. Brain-Warmup (15 Min nach RTH-Start) deckt die initiale Luecke ab.
 
@@ -213,9 +227,13 @@ Der Buffer ist ein **In-Memory Ringpuffer** mit mehreren Granularitaetsstufen:
 Aggregation erfolgt **bottom-up bei Bar-Abschluss**:
 
 ```
-1-Min-Bar eingetroffen (Decision-Bar)
-  → Decision-Bar-Buffer schreiben
-  → Ist 5-Min abgeschlossen? → 5-Min-Bar aggregieren
+1-Min-Bar eingetroffen (BarBuilder)
+  → 1-Min-Buffer schreiben
+  → 1m-Event-Detektor: Extreme Moves pruefen (Spike/Crash > 6%, Volume-Anomalien)
+  → Ist 3-Min abgeschlossen? → 3-Min-Bar aggregieren
+    → Wenn Decision-Bar-Timeframe = 3m → Decision-Trigger
+  → Ist 5-Min abgeschlossen? → 5-Min-Bar aggregieren (IMMER, fuer fixe KPIs)
+    → Wenn Decision-Bar-Timeframe = 5m → Decision-Trigger
     → Ist 15-Min abgeschlossen? → 15-Min-Bar aggregieren
       → Ist 30-Min abgeschlossen? → 30-Min-Bar aggregieren
 ```
@@ -243,7 +261,7 @@ Der Buffer wird von **einem Writer-Thread** (Data-Pipeline-Thread) beschrieben u
 
 ### Zweck
 
-Bei jedem Decision-Cycle (1m-Bar-Close) erzeugt die `MarketSnapshotFactory` einen **immutable MarketSnapshot**. Alle nachgelagerten Berechnungen (KPI, Rules, Quant, Arbiter) arbeiten auf demselben Snapshot. Determinismus garantiert.
+Bei jedem Decision-Cycle (Decision-Bar-Close, 3m oder 5m) erzeugt die `MarketSnapshotFactory` einen **immutable MarketSnapshot**. Alle nachgelagerten Berechnungen (KPI, Rules, Quant, Arbiter) arbeiten auf demselben Snapshot. Determinismus garantiert.
 
 ### Inhalt eines Snapshots
 
@@ -255,7 +273,8 @@ MarketSnapshot (Record, immutable)
 ├── currentBid          : double
 ├── currentAsk          : double
 ├── currentSpread       : double (in %)
-├── decisionBars        : List<Bar>  (letzte N 1-Min-Bars)
+├── oneMinBars          : List<Bar>  (letzte N 1-Min-Bars, fuer Event-Detektor und Trailing)
+├── decisionBars        : List<Bar>  (letzte N Decision-Bars: 3m oder 5m)
 ├── fiveMinBars         : List<Bar>  (letzte N 5-Min-Bars)
 ├── intradayHigh        : double
 ├── intradayLow         : double
@@ -277,7 +296,7 @@ MarketSnapshot (Record, immutable)
 ### Erzeugungstrigger
 
 Ein Snapshot wird erzeugt bei:
-1. **Decision-Bar-Close** (1-Minute-Bar abgeschlossen, MarketClock)
+1. **Decision-Bar-Close** (3m- oder 5m-Bar abgeschlossen, je nach Konfiguration, MarketClock)
 2. **Expliziter Anforderung** (z.B. beim State-Transition der Pipeline)
 
 ### Source of Truth
@@ -320,21 +339,25 @@ Der Bar-Close ist der zentrale Taktgeber der Pipeline. Folgender Ablauf gilt pro
 ### Ablauf (pro Pipeline)
 
 1. `MarketEvent`-Stream trifft ein → BarBuilder sammelt Ticks
-2. MarketClock erreicht Bar-Boundary → BarBuilder erzeugt Decision-Bar (OHLCV)
+2. MarketClock erreicht 1m-Bar-Boundary → BarBuilder erzeugt 1m-Bar (OHLCV)
 3. DQ-Gates validieren die Bar
-4. Validierte Bar → RollingDataBuffer (+ Aggregation hoeherer Timeframes)
-5. `MarketSnapshotFactory` erzeugt immutable `MarketSnapshot`
-6. Snapshot + BarClose werden ins **EventLog geschrieben (non-droppable)**
-7. Pipeline meldet **Quiescence** an den Orchestrator (odin-core): „drained bis sequence X / bar t"
-8. Orchestrator (Live: sofort weiter; Sim: Bar-Close-Barrier, wartet auf Brain/Execution)
-9. `MarketSnapshotEvent` wird an Brain publiziert → Decision-Cycle startet
+4. Validierte Bar → RollingDataBuffer (+ Aggregation: 1m → 3m → 5m → 15m → 30m)
+5. **1m-Event-Detektor:** Pruefung auf extreme Events (Spike/Crash, Volume-Anomalien). Emittiert `MonitorEvent` bei Bedarf
+6. **Ist Decision-Bar abgeschlossen?** (3m oder 5m, je nach `odin.data.decision-bar-timeframe-s`):
+   - Nein → Warte auf naechste 1m-Bar (kein Decision-Cycle)
+   - Ja → Weiter mit Schritt 7
+7. `MarketSnapshotFactory` erzeugt immutable `MarketSnapshot`
+8. Snapshot + BarClose werden ins **EventLog geschrieben (non-droppable)**
+9. Pipeline meldet **Quiescence** an den Orchestrator (odin-core): „drained bis sequence X / bar t"
+10. Orchestrator (Live: sofort weiter; Sim: Bar-Close-Barrier, wartet auf Brain/Execution)
+11. `MarketSnapshotEvent` wird an Brain publiziert → Decision-Cycle startet
 
 ### Quiescence-Semantik
 
 | Feld | Bedeutung |
 |------|-----------|
 | `sequenceNumber` | Letztes **verarbeitetes** MarketEvent (nicht nur im Snapshot enthaltenes) |
-| `barTime` | Zeitstempel der abgeschlossenen Decision-Bar (MarketClock) |
+| `barTime` | Zeitstempel der abgeschlossenen Decision-Bar (3m oder 5m, MarketClock) |
 | `instrumentId` | Instrument dieser Pipeline |
 | `runId` | Join-Key zum RunContext |
 
@@ -351,7 +374,7 @@ Die Data Pipeline schreibt folgende Events ins EventLog:
 | Event-Klasse | Volume | Drop-Policy |
 |-------------|--------|-------------|
 | MarketEvent (Ticks, L2-Updates) | Hoch | **Best-effort** — darf bei Ueberlast gesampelt/gedroppt werden. sequenceNumber bleibt erhalten |
-| BarClose (Decision-Bar) | Niedrig | **Non-droppable** — Pflicht fuer Replay |
+| BarClose (Decision-Bar: 3m oder 5m) | Niedrig | **Non-droppable** — Pflicht fuer Replay |
 | MarketSnapshot-Referenz (Snapshot-ID + Key-Felder: marketTime, instrumentId, sequenceNumber, vwap, currentPrice) | Niedrig | **Non-droppable** — Pflicht fuer Reproduzierbarkeit |
 | DataQualityEvent (WARN, REJECT_EVENT, ESCALATE) | Niedrig | **Non-droppable** |
 
@@ -382,7 +405,7 @@ Beim Tagesstart laedt die Data Pipeline historische Daten, bevor der Echtzeit-Fe
 
 1. **Session-Info abfragen:** RTH-Start/End, Half-Day-Status, Feiertag-Check via `MarketClock.getSessionBoundaries()` fuer das aktuelle Datum und die konfigurierte Exchange
 2. **Historical Data Request:** 20 Tage Daily Bars + 5 Tage Intraday-Bars (30-Min) via `MarketDataFeed`
-3. **Buffer Prefill:** Daily- und 30-Min-Buffer werden mit historischen Daten gefuellt. **1m/5m/15m-Buffer bleiben leer** — werden ab Live-/Replay-Start bottom-up aufgebaut
+3. **Buffer Prefill:** Daily- und 30-Min-Buffer werden mit historischen Daten gefuellt. **1m/3m/5m/15m-Buffer bleiben leer** — werden ab Live-/Replay-Start bottom-up aufgebaut
 4. **VWAP-Reset:** VWAP-Akkumulator auf 0 setzen (Intraday-Berechnung startet bei erster RTH-Bar)
 5. **Extrema-Reset:** Intraday-High/Low zuruecksetzen
 6. **DQ-Gate Kalibrierung:** Durchschnittliches Volumen und ATR aus historischen Daten berechnen (Referenz fuer Stale-Detection, Crash-Detection)
@@ -426,10 +449,10 @@ Die Pipeline verwendet **zwei getrennte Queues** pro Pipeline:
 
 | Queue | Typ | Kapazitaet | Drop-Policy | Begruendung |
 |-------|-----|-----------|-------------|-------------|
-| **Tick-Queue** | Unbounded (LinkedBlockingQueue) | Kein Limit | **Kein Drop** — Ticks sind Grundlage fuer OHLCV-Korrektheit des BarBuilder | BarBuilder-Integritaet hat Vorrang. Bei 2–3 Instrumenten und 1-Min-Bars ist die Tick-Rate beherrschbar |
+| **Tick-Queue** | Unbounded (LinkedBlockingQueue) | Kein Limit | **Kein Drop** — Ticks sind Grundlage fuer OHLCV-Korrektheit des BarBuilder | BarBuilder-Integritaet hat Vorrang. Bei 2–3 Instrumenten und 1m-Bars ist die Tick-Rate beherrschbar |
 | **L2-Queue** | Bounded (ArrayBlockingQueue) | Konfigurierbar (`odin.data.l2-queue-capacity`, Default: 500) | **Coalesced** — nur letzter Stand pro Level behalten. Bei Queue-Voll: aelteste L2-Updates verwerfen | L2 ist supplementaer; Verlust einzelner Updates akzeptabel |
 
-> **Warum Tick-Queue unbounded:** Bei 2–3 gleichzeitigen Instrumenten mit typischen US-Equity-Tick-Raten (100–500 Ticks/s pro Instrument) und 1-Minute-Bar-Zyklen ist die Verarbeitung schnell genug. Wenn dennoch ein Stau entsteht (z.B. durch GC-Pause), wird die Queue temporaer tiefer — der naechste Bar-Close arbeitet den Rueckstand ab.
+> **Warum Tick-Queue unbounded:** Bei 2–3 gleichzeitigen Instrumenten mit typischen US-Equity-Tick-Raten (100–500 Ticks/s pro Instrument) und 1m-Bar-Zyklen ist die Verarbeitung schnell genug. Wenn dennoch ein Stau entsteht (z.B. durch GC-Pause), wird die Queue temporaer tiefer — der naechste Bar-Close arbeitet den Rueckstand ab.
 
 ### Tick-Queue Guardrails
 
@@ -449,8 +472,9 @@ Bei ESCALATE publiziert die Pipeline ein `DataQualityEvent(ESCALATE, TICK_QUEUE_
 ```properties
 # odin-data.properties
 
-# BarBuilder
-odin.data.decision-bar-timeframe-s=60
+# BarBuilder / Decision-Bar
+# Erlaubte Werte: 180 (3m, Default) oder 300 (5m)
+odin.data.decision-bar-timeframe-s=180
 
 # Buffer-Groessen
 odin.data.buffer.tick-capacity=500
@@ -499,7 +523,8 @@ odin.data.warmup-duration-min=15
 
 ### Produziert (fuer odin-brain, odin-core)
 
-- `MarketSnapshotEvent` — Immutable Snapshot bei jedem Decision-Bar-Close
+- `MarketSnapshotEvent` — Immutable Snapshot bei jedem Decision-Bar-Close (3m oder 5m)
+- `MonitorEvent` — 1m-Event-Detektor: Extreme Moves, Volume-Anomalien (an `MonitorEventListener`)
 - `DataQualityEvent` — DQ-Gate-Verletzungen (WARN, REJECT_EVENT, ESCALATE) + EventLog-Backpressure
 - `PipelineQuiescence` — Signal an Orchestrator: Pipeline ist drained bis (sequenceNumber, barTime, instrumentId, runId)
 

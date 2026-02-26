@@ -106,7 +106,7 @@ Entry MUSS erfuellt sein:
 3. QuantVote in `{ALLOW_ENTRY, STRONG_ENTRY}`
 4. LlmVote in `{ALLOW_ENTRY, STRONG_ENTRY}`
 5. Confidences beider Seiten >= `min_conf_entry` (konfigurierbar)
-6. 10m Confirmation nicht gegensaetzlich (z.B. 10m TREND_DOWN → kein Long-Entry)
+6. Regime-Hysterese nicht gegensaetzlich (z.B. bestaetigt TREND_DOWN → kein Long-Entry)
 7. **Gate-Kaskade bestanden** (`gates_passed = true`) — alle Indikator-Gates muessen ihre Ja/Nein-Schwelle erfuellen (Details in 03-strategy-logic.md)
 
 **Dual-Key Matrix:**
@@ -151,7 +151,7 @@ Re-Entry nur wenn:
 - State = `FLAT_INTRADAY` oder Position stark reduziert
 - `cycleCounter < maxCyclesPerInstrumentPerDay`
 - Beide Keys stimmen zu (`ALLOW_REENTRY` bzw. `ALLOW_ENTRY`)
-- 10m Confirmation unterstuetzt (oder mindestens nicht widerspricht)
+- Regime-Hysterese unterstuetzt (oder mindestens nicht widerspricht)
 - Cooling-Off abgelaufen (min. 15 Minuten)
 - Vorheriger Cycle profitabel (Profit-Gate)
 - Verbleibendes Risk-Budget erlaubt minimale Position (Budget-Gate)
@@ -205,9 +205,8 @@ UNCERTAIN > TREND_DOWN > HIGH_VOLATILITY > RANGE_BOUND > TREND_UP
 
 ### 7.3 Regime-Hysterese (Anti-Flipping)
 
-- Regime-Wechsel erst nach **2 aufeinanderfolgenden** 3m-Bar-Closes mit konsistentem neuem Regime
-- **Ausnahme:** Crash-Event kann sofort `HIGH_VOLATILITY` erzwingen
-- Alternative: 1x 10m + 1x CRITICAL Event (z.B. Crash + Reclaim)
+- Regime-Wechsel erst nach **2 aufeinanderfolgenden** Decision-Bar-Closes mit konsistentem neuem Regime
+- **Ausnahme:** Crash-Event kann sofort `HIGH_VOLATILITY` erzwingen (via 1m-Event-Detektor)
 - Ziel: Nicht bei jedem VWAP-Cross flippen
 
 ### 7.4 Subregime-Fusion

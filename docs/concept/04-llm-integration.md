@@ -53,7 +53,7 @@ Der aktive Provider wird **vor Handelsstart per Konfiguration** gewaehlt und ste
 | `tactic` | Enum: WAIT_PULLBACK, BREAKOUT_FOLLOW, NO_TRADE | Taktische Empfehlung: auf Ruecksetzer warten, Breakout folgen, oder kein Trade | Decision |
 | `urgency_level` | Enum: LOW, MEDIUM, HIGH | Zeitkritikalitaet der aktuellen Situation | Decision |
 | `opportunity_zones` | Object[]: `{price_min, price_max, type: ENTRY/EXIT, reasoning}` | Preis-Zonen mit erhoehter Chance | Kontext |
-| `hold_duration_bars` | Int | Erwartete Haltedauer in 3m-Bars (Referenz-Timeframe) | Kontext |
+| `hold_duration_bars` | Int | Erwartete Haltedauer in Decision-Bars (3m oder 5m, je nach Konfiguration) | Kontext |
 | `exit_bias` | Enum: HOLD, NEUTRAL, EXIT_SOON, EXIT_NOW | Aktiviert TACTICAL_EXIT-Check | Tactical P0 |
 | `trail_mode` | Enum: WIDE, NORMAL, TIGHT | Multiplikator auf base trailingStopAtrFactor | Tactical P0 |
 | `profit_protection_profile` | Enum: OFF, STANDARD, AGGRESSIVE | Waehlt R-basierte Stufentabelle | Tactical P0 |
@@ -149,7 +149,7 @@ Es gilt IMMER der engere (konservativere) Wert. Das LLM kann den Trail nie weite
 | State-Transition | Jeder Zustandswechsel der Pipeline-FSM |
 | Crash/Spike Event | CRASH_DOWN oder SPIKE_UP erkannt |
 | Exhaustion Climax | EXHAUSTION_CLIMAX auf 1m |
-| Bestaetiger Regimewechsel | 10m Confirmation liefert neues Regime |
+| Bestaetiger Regimewechsel | Regime-Hysterese (2x konsekutive Decision-Bars) liefert neues Regime |
 
 ### 6.3 Freshness-Garantie bei Low-Vol
 
@@ -300,7 +300,7 @@ LLM-Output wird gegen sich selbst und den Marktkontext geprueft:
 - `regime = UNCERTAIN` + `urgency_level = HIGH` → Inkonsistent (UNCERTAIN impliziert LOW urgency)
 - `tactic = BREAKOUT_FOLLOW` + `regime = RANGE_BOUND` ohne Volumen-Signal → Inkonsistent
 - `risk_factors` enthalten "starker Abwaertstrend" + `regime = TREND_UP` → Warnung
-- LLM labelt `regime = TREND_UP`, wenn 10m Confirmation eindeutig DOWN ist → Auto-Override auf CAUTION
+- LLM labelt `regime = TREND_UP`, wenn Regime-Hysterese (2x konsekutive Decision-Bars) eindeutig DOWN ist → Auto-Override auf CAUTION
 - Confidence darf nicht immer konstant hoch sein → Drift-Alert
 
 ### Schicht 4: Quant-Gegenstimme

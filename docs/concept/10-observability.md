@@ -195,7 +195,7 @@ Ein MarketSnapshot ist der minimale Input fuer Brain/Risk und MUSS versioniert w
 | `sessionPhase` | Enum | PRE_MARKET, OPENING_BLOCK, RTH, FORCED_CLOSE, EOD |
 | `bar1m` | OHLCV | Aktueller 1m-Bar |
 | `bar3m_lastClosed` | OHLCV | Letzter abgeschlossener 3m-Bar |
-| `bar10m_lastClosed` | OHLCV | Letzter abgeschlossener 10m-Bar |
+| `bar5m_lastClosed` | OHLCV | Letzter abgeschlossener 5m-Bar (Fixer KPI-Timeframe) |
 | `vwap_day` | BigDecimal | Tages-VWAP (Source-of-Truth: odin-data) |
 | `levels` | Object | prior_close, prior_high, prior_low, day_open, day_high, day_low |
 | `dq_state` | Object | staleFeedFlag, lastDqEvent |
@@ -502,7 +502,7 @@ ReasonCodes MUESSEN maschinenlesbar und hierarchisch sein. Sie ermoeglichen spae
 | Objekt | Aufbewahrung | Beschreibung |
 |--------|-------------|--------------|
 | **Raw Bars (1m)** | Min. 6--12 Monate (lizenzabhaengig) | Fuer Replay und Forensik |
-| **Resampled Bars (3m/10m)** | Optional (ableitbar aus 1m) | Komfort, nicht zwingend |
+| **Resampled Bars (3m/5m)** | Optional (ableitbar aus 1m) | Komfort, nicht zwingend |
 | **EventLog** | 5 Jahre (Default, konfigurierbar) | Append-Only, hash-verkettet |
 | **ConfigSnapshots** | 5 Jahre | Versionen, Parameter |
 | **Reports (EOD)** | 5 Jahre | Tages-Reports |
@@ -542,7 +542,7 @@ Bei widerspruechlichen Daten oder Zustaenden:
 ### 17.1 Unit Tests
 
 - **Indikatoren:** EMA/RSI/ATR/ADX auf bekannten Testreihen
-- **Resampling:** 1m -> 3m/10m Aggregation korrekt (Open/High/Low/Close/Volume)
+- **Resampling:** 1m -> 3m/5m Aggregation korrekt (Open/High/Low/Close/Volume)
 - **DQ Gates:** Reihenfolge korrekt (Crash-Markierung vor Outlier-Reject)
 - **Arbiter Tables:** Jede Kombination QuantVote/LLMBias -> erwarteter Intent
 

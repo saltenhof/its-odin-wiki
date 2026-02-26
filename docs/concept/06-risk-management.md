@@ -14,7 +14,7 @@ Das Risikomanagement ist in drei hierarchische Verteidigungslinien gegliedert. J
 
 | Regel | Wert | Beschreibung |
 |-------|------|-------------|
-| Stop-Loss-Distance | **2.2 x ATR(14)** auf 3m-Bars | ATR wird bei Entry eingefroren (`entryAtr`). Faktor 2.2 ist Stakeholder-Entscheidung |
+| Stop-Loss-Distance | **2.2 x ATR(14)** auf 5m-Bars (Fixer KPI-Timeframe) | ATR wird bei Entry eingefroren (`entryAtr`). Faktor 2.2 ist Stakeholder-Entscheidung |
 | Max. Positionsgroesse | 50% des Tageskapitals | Kein einzelner Trade darf mehr als die Haelfte des Kapitals binden |
 | Min. Risk/Reward-Ratio | 1 : 1.5 | Entry wird vom Risk-Gate blockiert, wenn R/R unter 1.5 liegt |
 | Max. Slippage-Toleranz | 0.3% vom Entry-Preis | Bei Ueberschreitung: Stop anpassen, ggf. sofortiger Exit wenn R/R zerstoert |

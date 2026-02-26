@@ -95,22 +95,22 @@ INITIALIZING → WARMUP → OBSERVING ↔ SEEKING_ENTRY → PENDING_FILL → MAN
 
 ---
 
-## 3. Decision Loop (3m Decision-Bar)
+## 3. Decision Loop (Decision-Bar: 3m oder 5m, parametrisierbar)
 
-Der Decision Loop ist die deterministische Hauptschleife des Systems. Er wird bei jedem Close einer 3m-Bar ausgefuehrt und orchestriert alle Entscheidungsschritte.
+Der Decision Loop ist die deterministische Hauptschleife des Systems. Er wird bei jedem Close einer Decision-Bar (3m oder 5m, parametrisierbar via `odin.data.decision-bar-timeframe-s`) ausgefuehrt und orchestriert alle Entscheidungsschritte.
 
 ### 3.1 Die 10 Schritte
 
-Bei jedem 3m-Bar-Close:
+Bei jedem Decision-Bar-Close:
 
 | Schritt | Aktion | Verantwortlich |
 |---------|--------|---------------|
 | 1 | **Hard-Stop-Pruefung** -- Tagesverlust >= 10%? → DAY_STOPPED. Exposure-Limit, Max-Cycles pruefen | Risk |
 | 2 | **Data Quality Gate** -- Bar Completeness, Staleness, Outlier, Crash-Check | Data |
-| 3 | **MarketSnapshot erzeugen** (immutable, MarketClock-Timestamp). Snapshots fuer 1m/3m/10m | Data |
+| 3 | **MarketSnapshot erzeugen** (immutable, MarketClock-Timestamp). Snapshots fuer 1m/Decision-Bars/5m | Data |
 | 4 | **KPI-Engine** -- Indikatoren berechnen (EMA, RSI, ATR, ADX, VWAP, Bollinger, Volume-Ratio) → IndicatorResult. QuantVote erzeugen (Regime + Intent + Gate-Ergebnisse + Vetos) | Brain/Quant |
 | 5 | **LlmVote** aus LlmAnalysisStore lesen (async bereitgestellt, TTL-Check). Falls stale/fehlend: kein Entry moeglich | Brain/LLM |
-| 6 | **Regime-Fusion** -- Quant + LLM + 10m Confirmation + Hysterese (2 konsekutive 3m-Bars fuer Wechsel). Bei Widerspruch: konservativeres Regime | Brain/Arbiter |
+| 6 | **Regime-Fusion** -- Quant + LLM + Hysterese (2 konsekutive Decision-Bars fuer Wechsel). Bei Widerspruch: konservativeres Regime | Brain/Arbiter |
 | 7 | **Strategy Rules** -- Setup-FSMs evaluieren, Entry/Exit-Bedingungen pruefen, Pattern-Gates pruefen | Brain/Rules |
 | 8 | **Decision Arbiter** -- Votes kombinieren (Dual-Key), Konflikte aufloesen → TradeIntent oder NONE | Brain/Arbiter |
 | 9 | **Risk Gate** -- Position Sizing, Budget-Check, R/R-Ratio, Stop-Distance-Bounds | Risk |
@@ -134,12 +134,12 @@ Maximal ein TradeIntent pro Decision-Cycle. Bei Tie-Break: **Exit > Entry**. Tra
 
 **Kein automatisches Retry.** Jeder abgelehnte Intent wird final verworfen und im Audit-Log mit ReasonCode protokolliert. Retry-Schleifen wuerden zu Overtrading und Signal-Fixierung fuehren.
 
-### 3.4 1m Monitor Loop (Eskalation)
+### 3.4 1m Event-Detektor (Eskalation)
 
-Zusaetzlich zum 3m Decision Loop laeuft ein 1m Monitoring Loop. Er DARF NICHT final handeln, sondern nur:
+Zusaetzlich zum Decision Loop laeuft ein 1m Event-Detektor. Er erkennt NUR extreme/ueberproportionale Moves (+/-6% Spike) und DARF NICHT final handeln, sondern nur:
 
 - Stop-/Risk-Protect ausloesen (OMS-Maintenance)
-- Eine sofortige Decision-Cycle-Anforderung bei CRITICAL Events (ausserhalb des 3m-Takts)
+- Eine sofortige Decision-Cycle-Anforderung bei CRITICAL Events (ausserhalb des Decision-Bar-Takts)
 - LLM-Refresh triggern
 
 | Event | Erkennung | Wirkung |
@@ -147,21 +147,20 @@ Zusaetzlich zum 3m Decision Loop laeuft ein 1m Monitoring Loop. Er DARF NICHT fi
 | `CRASH_DOWN` | Preis > crash_pct nach unten + Volume Spike | Triggert LLM-Refresh, schaltet Risk Mode, priorisiert Exit |
 | `SPIKE_UP` | Preis > crash_pct nach oben + Volume Spike | Triggert LLM-Refresh, Exhaustion-Check |
 | `EXHAUSTION_CLIMAX` | Drei-Saeulen-Exhaustion auf 1m (Extension + Climax + Rejection) | Scale-Out aggressiver, Trail enger, Adds blockieren |
-| `STRUCTURE_BREAK_1M` | Lower-Low / Close unter Vorbar-Low | Priorisiert Exit im naechsten 3m Cycle |
+| `STRUCTURE_BREAK_1M` | Lower-Low / Close unter Vorbar-Low | Priorisiert Exit im naechsten Decision-Cycle |
 | `DQ_STALE` | Keine neue 1m-Bar nach Schwelle | Trading Halt / Degradation |
 | `DQ_OUTLIER` | Outlier-Bar erkannt (extrem + kein Volume) | Bar verwerfen |
 | `DQ_GAP` | Open vs. Close Gap ueber Schwelle | Strategieregeln verschaerfen |
 | `VWAP_CROSS_1M` | Preis kreuzt VWAP auf 1m | Hinweis, kein direkter Trigger |
 | `EMA_CROSS_1M` | EMA-Kreuzung auf 1m | Hinweis, kein direkter Trigger |
 
-### 3.5 10m Confirmation Loop
+### 3.5 Regime-Hysterese (ersetzt fruehere 10m-Confirmation-Loop)
 
-Bei jedem Close einer 10m-Bar:
+Die 10m-Confirmation-Loop ist **entfallen** (Stakeholder-Entscheidung 2026-02-26). Regime-Hysterese wird direkt auf Decision-Bars geloest:
 
-- Bestaetigt Trend/Regime (Hysterese: 2 konsekutive 10m-Bars)
-- Aktualisiert RegimePersistenz
-- Setzt DayType-Flags (TREND_DAY_UP, TREND_DAY_DOWN, RANGE_DAY, HIGH_VOL_DAY)
-- Wirkt als Gate im Arbiter: 10m Confirmation DARF NICHT gegensaetzlich zum Decision-Bar-Regime sein
+- Regime-Wechsel erst nach **2 aufeinanderfolgenden Decision-Bar-Closes** mit konsistentem neuem Regime
+- **Ausnahme:** Ein Crash-Event (`CRASH_DOWN`, `SPIKE_UP`) KANN sofort `HIGH_VOLATILITY` erzwingen
+- DayType-Flags (TREND_DAY_UP, TREND_DAY_DOWN, RANGE_DAY, HIGH_VOL_DAY) werden anhand der Decision-Bar-Historie gesetzt
 
 ---
 
@@ -225,7 +224,7 @@ Die Quant-Validierung verwendet **keine gewichteten Scores**. Stattdessen wird e
 | **OPENING_VOLATILITY** | **Kein Entry** (Diagnose-Phase) | -- |
 | **EXHAUSTION_RISK** | **Kein Entry** (spaet im Trend) | -- |
 | **RECOVERY** | Konservativer Entry (nach Flush/Korrektur) | Verschaerfte Gate-Schwellen |
-| **BREAKOUT_ATTEMPT** | Entry bei bestaetiger Range-Expansion + Volume | 10m Confirmation nicht dagegen |
+| **BREAKOUT_ATTEMPT** | Entry bei bestaetiger Range-Expansion + Volume | Regime-Hysterese nicht dagegen |
 
 ### 4.5 Dual-Key-Anforderung fuer Entry
 
@@ -236,7 +235,7 @@ Entry MUSS erfuellt sein (Symmetric Hybrid Protocol):
 - QuantVote in {`ALLOW_ENTRY`, `STRONG_ENTRY`}
 - LlmVote in {`ALLOW_ENTRY`, `STRONG_ENTRY`}
 - Confidences beider Seiten >= `min_conf_entry`
-- 10m Confirmation nicht gegensaetzlich
+- Regime-Hysterese nicht gegensaetzlich
 
 ---
 
@@ -282,14 +281,14 @@ TACTICAL_EXIT ist eine Exit-Prioritaet zwischen REGIME_CHANGE und zeitbasiertem 
 
 - **Hard-Risk** (Stop, Kill, Forced Close): sofort, nicht verhandelbar
 - Wenn **eine** Seite (Quant oder LLM) `EXIT_NOW` → setze `PENDING_EXIT`
-- Exit wird ausgefuehrt, wenn innerhalb von 1--2 3m-Bars bestaetigt **ODER** 1m-Event (`EXHAUSTION_CLIMAX` / `STRUCTURE_BREAK_1M`) eintritt
+- Exit wird ausgefuehrt, wenn innerhalb von 1--2 Decision-Bars bestaetigt **ODER** 1m-Event (`EXHAUSTION_CLIMAX` / `STRUCTURE_BREAK_1M`) eintritt
 - Wenn nicht bestaetigt: `EXIT_SOON`-Profile (Trail tighter, Scale-Out aggressiver)
 
 ---
 
 ## 6. Die vier Setups (Pattern-State-Machines)
 
-Alle Setups existieren als FSM, die auf 3m-Entscheidungslogik basiert und 1m-Ereignisse als Trigger nutzt. Pattern-Aktivierung ist hybrid: LLM schlaegt Pattern-Kandidaten vor (`pattern_candidates` mit Enum + Confidence + Phase), aber State-Machine-Uebergaenge werden ausschliesslich durch KPI-Kriterien getriggert. Pattern-Confidence >= 0.5 UND deterministische KPI-Bestaetigung MUESSEN beide vorliegen.
+Alle Setups existieren als FSM, die auf Decision-Bar-Entscheidungslogik basiert und 1m-Ereignisse als Trigger nutzt. Pattern-Aktivierung ist hybrid: LLM schlaegt Pattern-Kandidaten vor (`pattern_candidates` mit Enum + Confidence + Phase), aber State-Machine-Uebergaenge werden ausschliesslich durch KPI-Kriterien getriggert. Pattern-Confidence >= 0.5 UND deterministische KPI-Bestaetigung MUESSEN beide vorliegen.
 
 ### 6.1 Setup A -- Opening Consolidation → Trend Entry
 
@@ -300,16 +299,16 @@ Alle Setups existieren als FSM, die auf 3m-Entscheidungslogik basiert und 1m-Ere
 | State | ReasonCode | Erkennungskriterien | Uebergang |
 |-------|-----------|---------------------|-----------|
 | `A_OBSERVE_OPEN` | `A_OBSERVE_OPEN` | Opening-Spike erkannt (1m Range/ATR hoch, VolumeRatio hoch) | → `A_WAIT_CONSOLIDATION` nach Opening Buffer |
-| `A_WAIT_CONSOLIDATION` | `A_WAIT_CONSOLIDATION` | Zeitgate: `t >= open + opening_buffer_minutes`. ATR-Decay: `atr_current / atr_opening_baseline < threshold`. Range-Contraction: 2 von 3 letzten 3m Bars kleiner | → `A_READY` bei Konsolidierung bestaetigt |
+| `A_WAIT_CONSOLIDATION` | `A_WAIT_CONSOLIDATION` | Zeitgate: `t >= open + opening_buffer_minutes`. ATR-Decay: `atr_current / atr_opening_baseline < threshold`. Range-Contraction: 2 von 3 letzten Decision-Bars kleiner | → `A_READY` bei Konsolidierung bestaetigt |
 | `A_READY` | `A_READY` | Konsolidierung abgeschlossen, VWAP-Akzeptanz (Preis nahe/ueber VWAP, keine massiven Rejects) | → `A_IN_TRADE` bei Entry-Signal |
 | `A_IN_TRADE` | `A_IN_TRADE` | Position eroeffnet. Scale-Out bei 1R/2R oder Parabolic/Exhaustion Event | → `A_DONE` bei Exit |
 | `A_DONE` | `A_DONE` | Setup abgeschlossen | → zurueck zu Pipeline-FSM |
 
 **Entry-Typen innerhalb Setup A:**
 
-1. **Pullback-Entry:** Regime TREND_UP oder BREAKOUT_ATTEMPT. Pullback in VWAP/EMA-Zone. 1m zeigt Selling-Pressure-Decay (kleinere rote Kerzen, lower volume). 3m Close zurueck ueber EMA(9).
+1. **Pullback-Entry:** Regime TREND_UP oder BREAKOUT_ATTEMPT. Pullback in VWAP/EMA-Zone. 1m zeigt Selling-Pressure-Decay (kleinere rote Kerzen, lower volume). Decision-Bar Close zurueck ueber EMA(9).
 
-2. **Breakout-Entry:** 3m Konsolidierungsrange wird gebrochen. 3m Range-Expansion > 1.5x ATR(3m). Volume-Ratio > Threshold. 10m Confirmation nicht dagegen.
+2. **Breakout-Entry:** Decision-Bar-Konsolidierungsrange wird gebrochen. Decision-Bar Range-Expansion > 1.5x ATR. Volume-Ratio > Threshold. Regime-Hysterese nicht dagegen.
 
 **Add-Regeln:** Add nur wenn nach Entry hoehere Tiefs bestaetigt, kein Exhaustion-Risk, 1m Monitor kein `EXHAUSTION_CLIMAX`.
 
@@ -324,7 +323,7 @@ Alle Setups existieren als FSM, die auf 3m-Entscheidungslogik basiert und 1m-Ere
 | `B_NEUTRAL` | -- | Kein Flush erkannt | → `B_FLUSH_DETECTED` bei Flush |
 | `B_FLUSH_DETECTED` | `B_FLUSH_DETECTED` | Bar-Range > 2x ATR(14), Close < Open, Close nahe Bar-Low (< 20% der Range), Volume_Ratio > X, Sweep unter Key-Level (Tages-Low, VWAP) | → `B_RECLAIM` wenn Preis innerhalb 3 Bars > VWAP/MA-Zone. Timeout: Setup invalid |
 | `B_RECLAIM` | `B_RECLAIM` | Close > VWAP UND Close > MA-Cluster, EMA(9) beginnt zu drehen, erste Higher-Low Struktur sichtbar. Hold min. 2 Bars | → `B_CONFIRM_RUN` bei Higher-Low + EMA(9) > EMA(21). **Starter-Entry** |
-| `B_CONFIRM_RUN` | `B_CONFIRM_RUN` | Higher-Low bestaetigt, 10m Trendfilter dreht | → `B_IN_TRADE`. **Add-Position** bei Bestaetigung |
+| `B_CONFIRM_RUN` | `B_CONFIRM_RUN` | Higher-Low bestaetigt, Decision-Bar-Trendfilter dreht | → `B_IN_TRADE`. **Add-Position** bei Bestaetigung |
 | `B_IN_TRADE` | `B_IN_TRADE` | Hoehere Tiefs, flache Pullbacks (< 0.5x ATR), Preis > Trend-MA | → `B_DONE` bei Lower-Low oder Close unter MA-Zone |
 | `B_DONE` | `B_DONE` | Strukturbruch (Lower-Low) ODER Close unter MA-Cluster ODER Trailing-Stop | → zurueck zu Pipeline-FSM |
 
@@ -361,12 +360,12 @@ Alle Setups existieren als FSM, die auf 3m-Entscheidungslogik basiert und 1m-Ere
 |-------|-----------|---------------------|-----------|
 | `D_ELIGIBLE` | `D_ELIGIBLE` | Nur wenn Cycle > 0 oder Vormittag ohne Trade. Pipeline in FLAT_INTRADAY oder OBSERVING | → `D_BOTTOMING` |
 | `D_BOTTOMING` | `D_BOTTOMING` | Korrektur hat Struktur (Lower-Lows enden, Higher-Low entsteht). Volumen-Climax (Selling Exhaustion) | → `D_RECLAIM` |
-| `D_RECLAIM` | `D_RECLAIM` | VWAP reclaim + 10m Trend kippt oder stabilisiert. LLM sieht "Re-Accumulation" statt "Distribution" | → `D_CONFIRM` |
+| `D_RECLAIM` | `D_RECLAIM` | VWAP reclaim + Decision-Bar-Trend kippt oder stabilisiert. LLM sieht "Re-Accumulation" statt "Distribution" | → `D_CONFIRM` |
 | `D_CONFIRM` | `D_CONFIRM` | Higher-Low bestaetigt, EMA-Rekreuzung, Volumen-Shift | → `D_IN_TRADE` |
 | `D_IN_TRADE` | `D_IN_TRADE` | Konservativeres Profil: kleinere Position, engerer Stop | → `D_DONE` |
 | `D_DONE` | `D_DONE` | Exit oder EOD | → zurueck zu Pipeline-FSM |
 
-**Gates:** Cooldown abgelaufen, 10m nicht DOWN confirmed, Reclaim VWAP + Higher-Low, LLM erkennt Regimewechsel (Bias Shift). Sizing reduziert (60--80% von Cycle 1), aggressivere Profit Protection.
+**Gates:** Cooldown abgelaufen, Regime-Hysterese nicht DOWN confirmed, Reclaim VWAP + Higher-Low, LLM erkennt Regimewechsel (Bias Shift). Sizing reduziert (60--80% von Cycle 1), aggressivere Profit Protection.
 
 ---
 

@@ -7,7 +7,7 @@
 ## 1. Grundprinzip (Normativ)
 
 - OMS ist **deterministisch und reproduzierbar** -- gleicher Input fuehrt zum gleichen Output
-- Keine Mikrosekunden-Optimierung; Orders werden auf **1m/3m-Takt** gesteuert
+- Keine Mikrosekunden-Optimierung; Orders werden auf **Decision-Bar-Takt** (3m oder 5m) gesteuert
 - LLM liefert maximal **Dringlichkeit** und **Bias** (bounded Enums), aber keine Orderdetails
 - OMS operiert **single-threaded pro Pipeline**
 - Trailing-Stops und Scaling-Out sind **OMS-Maintenance**, keine TradeIntents

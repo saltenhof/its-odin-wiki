@@ -35,7 +35,7 @@ Die folgende Matrix zeigt, welche Daten in welchem Modus verfuegbar sind:
 
 | Daten | Backtest (Standard) | Backtest (mit Recording) | Live (OHLCV_ONLY) | Live (BASIC_QUOTES) | Live (L2_DEPTH) |
 |-------|--------------------|-----------------------|-------------------|-------------------|----------------|
-| OHLCV 1m/3m/10m | Ja | Ja | Ja | Ja | Ja |
+| OHLCV 1m/3m/5m | Ja | Ja | Ja | Ja | Ja |
 | Bid/Ask | Nein | Ja (recorded) | Nein (Proxy) | Ja | Ja |
 | L2 Orderbook | Nein | Ja (recorded) | Nein | Nein | Ja |
 | News/Headlines | Nein | Nein | Optional | Optional | Optional |
@@ -48,20 +48,24 @@ Die folgende Matrix zeigt, welche Daten in welchem Modus verfuegbar sind:
 
 ---
 
-## 2. Timeframes und Rollen
+## 2. Drei-Layer-Timeframe-Architektur (Stakeholder-Entscheidung 2026-02-26)
 
-| Frame | Quelle | Rolle | Lookback-Minimum |
-|-------|--------|-------|------------------|
-| **1m** | Direkt vom Feed | Monitoring, Extrembewegungen, Event-Detektoren, Stop-Tightening | -- |
-| **3m** | Resampled aus 1m | Quant-Decision-Frame: Entry/Exit/Scale-Entscheidungen | ATR(14), RSI(14), ADX(14): mind. 15 Bars; Bollinger(20): mind. 21 Bars |
-| **10m** | Resampled aus 1m | Trend-/Regime-Confirmation, Anti-Flip/Hysterese | Wie 3m |
-| **Daily** | Aus Historie | ADR(14), Gap, Prior Day Levels | 30 Tage |
+| Layer | Timeframe | Quelle | Rolle | Lookback-Minimum |
+|-------|-----------|--------|-------|------------------|
+| **Event-Detektor** | **1m** | Direkt vom Feed | NUR Monitoring fuer extreme/ueberproportionale Moves (+/-6% Spike). KEIN normaler Decision-Layer. Stop-Tightening, Crash/Spike-Detection | -- |
+| **Decision-Layer** | **3m oder 5m** (parametrisierbar) | Resampled aus 1m | Hauptlage-Beurteilung: Entry/Exit/Scale-Entscheidungen, EMA(9), EMA(21) auf Decision-Bars | EMA(21): mind. 22 Bars |
+| **Fixe KPI-Timeframe** | **immer 5m** | Resampled aus 1m | ATR(14), ADX(14), RSI(14), Bollinger(20,2) — IMMER auf 5m, unabhaengig vom Decision-Layer | ATR(14), RSI(14), ADX(14): mind. 15 Bars; Bollinger(20): mind. 21 Bars |
+| **Daily** | -- | Aus Historie | ADR(14), Gap, Prior Day Levels | 30 Tage |
+
+**Wichtig:** Der Decision-Layer-Timeframe ist parametrisierbar via `odin.data.decision-bar-timeframe-s` (Default: 180 fuer 3m, alternativ 300 fuer 5m). Praeferenz fuer High-Beta-Aktien: 3m. Standard: 5m. ATR, ADX, RSI werden IMMER auf 5m berechnet — auch wenn der Decision-Layer auf 3m laeuft.
+
+**10m-Confirmation-Loop entfaellt.** Die Regime-Hysterese wird durch Confirmation-Lag auf Decision-Bars geloest (2 aufeinanderfolgende Decision-Bars mit konsistentem neuem Regime).
 
 ---
 
 ## 3. Resampling-Regeln (Normativ)
 
-Resampling erfolgt **zeitbasiert und bar-close-basiert**:
+Resampling erfolgt **zeitbasiert und bar-close-basiert** in einer Aggregationskaskade: 1m -> 3m -> 5m.
 
 **3m-Bar** = Aggregation aus drei 1m-Bars:
 
@@ -71,15 +75,15 @@ Resampling erfolgt **zeitbasiert und bar-close-basiert**:
 - C = Close(Bar3)
 - V = Sum(Volume aller 3 Bars)
 
-**10m-Bar** analog (10x 1m).
+**5m-Bar** = Aggregation aus fuenf 1m-Bars (analog). Wird IMMER erzeugt, da KPIs (ATR, ADX, RSI) fix auf 5m laufen.
 
-**Alignment:** Resampling ist an Session-Start ausgerichtet (z.B. 09:30:00 -> 09:32:59, 09:33:00 -> 09:35:59).
+**Alignment:** Resampling ist an Session-Start ausgerichtet (z.B. 3m: 09:30:00 -> 09:32:59, 09:33:00 -> 09:35:59; 5m: 09:30:00 -> 09:34:59, 09:35:00 -> 09:39:59).
 
-**Gueltigkeitsregel:** Eine 3m-Bar ist gueltig erst nach Close der dritten 1m-Bar. Keine vorzeitige Auswertung.
+**Gueltigkeitsregel:** Eine aggregierte Bar ist gueltig erst nach Close der letzten enthaltenen 1m-Bar. Keine vorzeitige Auswertung.
 
 ### 3.1 Incomplete-Bar-Policy (Normativ, harte Anforderung)
 
-Bei einem erzwungenen 1m-Decision-Interrupt (z.B. durch ein CRITICAL-Event wie CRASH_DOWN oder EXHAUSTION_CLIMAX) friert die Pipeline den State der letzten vollstaendig geschlossenen 3m- und 10m-Bars ein.
+Bei einem erzwungenen 1m-Event-Interrupt (z.B. durch ein CRITICAL-Event wie CRASH_DOWN oder EXHAUSTION_CLIMAX) friert die Pipeline den State der letzten vollstaendig geschlossenen Decision-Bars und 5m-Bars ein.
 
 **Regel:** Berechnungen basieren ausschliesslich auf dem Snapshot der letzten abgeschlossenen Bars (T-1) plus den dedizierten 1m-Features der aktuellen, triggernden 1m-Bar. Es findet KEINE Neuberechnung von gleitenden Durchschnitten, Volatilitaetsbaendern oder sonstigen Multi-Bar-Indikatoren auf Basis unfertiger Bars statt.
 
@@ -88,7 +92,7 @@ Bei einem erzwungenen 1m-Decision-Interrupt (z.B. durch ein CRITICAL-Event wie C
 **Konsequenzen:**
 
 - 1m-Features (Jump/Crash Detection, Wick Ratios, Micro-Structure) werden normal auf der aktuellen 1m-Bar berechnet
-- 3m/10m-KPIs (EMA, RSI, ADX, ATR, Bollinger) verwenden den letzten abgeschlossenen Bar
+- Decision-Bar-KPIs (EMA) und 5m-KPIs (RSI, ADX, ATR, Bollinger) verwenden den letzten abgeschlossenen Bar des jeweiligen Timeframes
 - VWAP wird kumulativ berechnet und ist davon nicht betroffen (jeder 1m-Bar-Close aktualisiert VWAP)
 
 ---
@@ -100,8 +104,8 @@ Minimale Buffergroessen je Pipeline:
 | Buffer | Groesse | Entspricht |
 |--------|---------|-----------|
 | B1 (1m) | 240 Bars | ca. 4h |
-| B3 (3m) | 200 Bars | ca. 10h |
-| B10 (10m) | 80 Bars | ca. 13h |
+| B3 (3m) | 200 Bars | ca. 10h (nur bei Decision-Layer 3m aktiv) |
+| B5 (5m) | 120 Bars | ca. 10h (IMMER aktiv fuer fixe KPIs; bei Decision-Layer 5m auch Decision-Buffer) |
 | Daily | 30 Tage | Fuer ADR14, Gap-Analyse |
 
 **Verbraucher der Buffers:** QuantEngine, LLM Prompt Builder, Strategy Rules, Risk Monitor.
@@ -183,28 +187,25 @@ Alle Marktdaten durchlaufen vor Einspeisung in den Rolling Buffer Quality Gates 
 
 ## 7. Feature-Katalog (OHLCV-Basis, stufenabhaengig erweiterbar)
 
-### 7.1 Primaer-Features (3m Decision-Frame)
+### 7.1 Decision-Layer-Features (Decision-Bar-Timeframe: 3m oder 5m)
 
 | Feature | Berechnung | Verwendung |
 |---------|-----------|-----------|
-| VWAP intraday | Aus 1m Volume, als Feature je 3m Snapshot | Mean-/Trend-Anchor |
-| EMA(9) | Exponential Moving Average, 3m | Kurzfristiger Trend |
-| EMA(21) | Exponential Moving Average, 3m | Trend-Kreuzung, Pullback-Qualitaet |
-| RSI(14) | Relative Strength Index, 3m | Overbought/Oversold-Veto, Momentum |
-| ATR(14) | Average True Range, 3m | Stop-Distance, Sizing, Vol-Regime |
-| ADX(14) | Average Directional Index, 3m | Trendqualitaet (Entry-Filter) |
-| Bollinger Bands(20,2) | 3m | Ueberhitzung, Runner-Trailing, Extension |
+| VWAP intraday | Aus 1m Volume, als Feature je Decision-Bar Snapshot | Mean-/Trend-Anchor |
+| EMA(9) | Exponential Moving Average, Decision-Bars | Kurzfristiger Trend |
+| EMA(21) | Exponential Moving Average, Decision-Bars | Trend-Kreuzung, Pullback-Qualitaet |
 | Volumenratio | `vol_ratio = vol / SMA(vol, 20)` | Bestaetigung/Climax-Detektion |
 | VWAP-Extension | `ext_vwap_atr = (close - vwap) / atr` | "Zu weit von VWAP" Pruefung |
 | Struktur | Swing-High/Low, Higher-Low, Lower-High | Deterministisch, ohne Lookahead |
 
-### 7.2 Bestaetigungs-Features (10m Confirmation-Frame)
+### 7.2 Fixe KPI-Features (IMMER 5m, unabhaengig vom Decision-Layer)
 
-| Feature | Verwendung |
-|---------|-----------|
-| EMA(9), EMA(21) | Trend-Bestaetigung |
-| ADX(14) oder Trendstaerke-Proxies | Regime-Persistenz |
-| ATR-Slope, Range-Slope | Compression/Expansion |
+| Feature | Berechnung | Verwendung |
+|---------|-----------|-----------|
+| RSI(14) | Relative Strength Index, 5m | Overbought/Oversold-Veto, Momentum |
+| ATR(14) | Average True Range, 5m | Stop-Distance, Sizing, Vol-Regime |
+| ADX(14) | Average Directional Index, 5m | Trendqualitaet (Entry-Filter) |
+| Bollinger Bands(20,2) | 5m | Ueberhitzung, Runner-Trailing, Extension |
 
 ### 7.3 Monitoring-Features (1m)
 
@@ -252,16 +253,16 @@ Aus den Rolling Buffers werden deterministische Pattern-Features berechnet, die 
 
 ---
 
-## 9. 1m Monitor Events (Eskalation)
+## 9. 1m Event-Detektor (Eskalation)
 
-Der 1m-Layer erzeugt Events, die den 3m Decision-Cycle beeinflussen:
+Der 1m-Layer ist ein reiner Monitoring-/Event-Detektor fuer extreme Moves. Er erzeugt Events, die den Decision-Cycle auf dem Decision-Layer beeinflussen:
 
 | Event | Erkennung | Wirkung |
 |-------|-----------|---------|
 | `CRASH_DOWN` | Preis > crash_pct nach unten + Volume Spike | Triggert LLM-Refresh, schaltet Risk Mode, priorisiert Exit |
 | `SPIKE_UP` | Preis > crash_pct nach oben + Volume Spike | Triggert LLM-Refresh, Exhaustion-Check |
 | `EXHAUSTION_CLIMAX` | Drei-Saeulen-Exhaustion auf 1m (Extension + Climax + Rejection) | Scale-Out aggressiver, Trail enger, Adds blockieren |
-| `STRUCTURE_BREAK_1M` | Lower-Low / Close unter Vorbar-Low | Priorisiert Exit im naechsten 3m Cycle |
+| `STRUCTURE_BREAK_1M` | Lower-Low / Close unter Vorbar-Low | Priorisiert Exit im naechsten Decision-Cycle |
 | `DQ_STALE` | Keine neue 1m-Bar nach Schwelle | Trading Halt / Degradation |
 | `DQ_OUTLIER` | Outlier-Bar erkannt | Bar verwerfen |
 | `DQ_GAP` | Open vs. Close Gap | Strategieregeln verschaerfen |
@@ -271,7 +272,7 @@ Der 1m-Layer erzeugt Events, die den 3m Decision-Cycle beeinflussen:
 **Regel:** Der 1m-Monitor DARF NICHT final handeln, sondern nur:
 
 - Stop-/Risk-Protect ausloesen
-- Oder eine sofortige Decision Cycle anfordern (ausserhalb des 3m-Takts bei CRITICAL Events)
+- Oder eine sofortige Decision Cycle anfordern (ausserhalb des Decision-Bar-Takts bei CRITICAL Events)
 
 ---
 

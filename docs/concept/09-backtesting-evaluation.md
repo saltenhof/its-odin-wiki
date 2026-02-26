@@ -21,7 +21,7 @@
 |----------|-------------|
 | **A: MC-Ansatz (Baseline)** | QuantEngine entscheidet (KPI-first). LLM nur als Tactical Parameter Controller (bounded Enums), keine direkten Trade-Triggers. Entries/Adds strikt Quant-gated |
 | **B: Unified-Veto** | QuantEngine generiert Trade-Intents. LLM hat Veto-Recht fuer Entry/Add (`NO_TRADE`/`SAFETY_VETO`), aber kein Recht, Entry/Add zu erzwingen. Fuer Exits darf LLM `EXIT_SOON` triggern, `EXIT_NOW` nur mit Confirm |
-| **C: Unified-Full (Dual-Key)** | Entry/Add nur bei QuantVote UND LlmVote (beide >= Confidence-Schwelle, 10m Confirm ok). Exit/Scale-Out durch "one-key pending" + Confirm/Timeout |
+| **C: Unified-Full (Dual-Key)** | Entry/Add nur bei QuantVote UND LlmVote (beide >= Confidence-Schwelle, Regime-Hysterese ok). Exit/Scale-Out durch "one-key pending" + Confirm/Timeout |
 
 ### 2.2 Diagnose-Varianten (nicht als produktiver Kandidat)
 
@@ -147,7 +147,7 @@ Jeder Backtest-Run wird mit seiner Datenstufe getaggt. Die Stufe bestimmt, welch
 
 | Datenstufe | Beschreibung | Verfuegbarkeit |
 |------------|-------------|----------------|
-| **OHLCV_ONLY** | Standard. Nur OHLCV-Bars (1m/3m/10m). Keine Bid/Ask-Spreads, kein Level-2 | Immer verfuegbar (historische Daten) |
+| **OHLCV_ONLY** | Standard. Nur OHLCV-Bars (1m/3m/5m). Keine Bid/Ask-Spreads, kein Level-2 | Immer verfuegbar (historische Daten) |
 | **BASIC_QUOTES** | Mit aufgezeichneten Bid/Ask-Daten. Ermoeglicht realistischere Spread-Modellierung | Nur wenn im Live-Betrieb aufgezeichnet |
 | **L2_DEPTH** | Mit aufgezeichneten Level-2-Orderbuchdaten. Ermoeglicht Liquiditaetsanalyse und praezisere Fill-Modellierung | Nur wenn im Live-Betrieb aufgezeichnet |
 
@@ -292,7 +292,7 @@ Fuer jede Variante zusaetzlich:
 |------|-------------|
 | **Slippage x2/x3** | Erhoehte Transaktionskosten |
 | **Latenz 1--2 Minuten** | Verzoegerte Ausfuehrung |
-| **Bar-Alignment Shift** | 3m/10m Aggregation um 1 Minute versetzt |
+| **Bar-Alignment Shift** | 3m/5m Aggregation um 1 Minute versetzt |
 | **Cooldown haerter/weicher** | Overtrade-Sensitivitaet |
 | **LLM Outage Simulation** | 5%/10% random missing Outputs → Degraded Mode |
 
@@ -395,12 +395,12 @@ Jeder Challenger definiert:
 |--:|----------|-----------------|---------------------|
 | **S01** | Opening Spike → Konsolidierung → Trend up | ATR-Decay, Contraction, Breakout + Vol | Setup A Entry nach Buffer, Add nach HL. Profit Protection ab 1R |
 | **S02** | Opening Spike → Fake Breakout → Range Day | Spike, kurzer Ausbruch, zurueck zur VWAP | LLM/Quant RedFlag "fakeout/chop". Entry blockiert oder schnell beendet. Overtrade-Schutz |
-| **S03** | -10% Flush → V-Reversal → Rally | FLUSH_DETECTED + Vol Spike | Starter-Entry erst nach RECLAIM. Add erst nach 10m Confirmation/HL |
+| **S03** | -10% Flush → V-Reversal → Rally | FLUSH_DETECTED + Vol Spike | Starter-Entry erst nach RECLAIM. Add erst nach Regime-Hysterese/HL |
 | **S04** | -10% Flush → Dead-Cat-Bounce → weiter DOWN | FLUSH erkannt, aber Reclaim-Gate nicht erfuellt | Setup wird abgebrochen. Kein "Averaging down" |
 | **S05** | Coil ueber 2h → Breakout midday | COIL_FORMING, Range-Kompression | Entry Breakout oder Retest. Parabolic-Protection aktiv wenn Ausbruch explodiert |
 | **S06** | Coil → Fakeout → Stop small loss | Breakout Entry, sofortige Negation | Hard-Stop greift schnell. Cooldown verhindert sofortigen Re-Entry |
 | **S07** | Parabolic Run → Plateau → Dump into Close | Parabolic/Exhaustion Events | Scale-Out-Ladder vor Dump. EOD Forced Close zuverlaessig |
-| **S08** | Slow Trend Day (steady up) | 10m Trend stabil, wenige Pullbacks | Kein hektisches Scalping. Runner bleibt, Trailing folgt. Nicht zu frueh alles verkaufen |
+| **S08** | Slow Trend Day (steady up) | Decision-Bar-Trend stabil, wenige Pullbacks | Kein hektisches Scalping. Runner bleibt, Trailing folgt. Nicht zu frueh alles verkaufen |
 | **S09** | VWAP Magnet Chop Day | ADX low, ATR-Decay, haeufige VWAP-Crosses | RANGE Regime. Entry-Gates restriktiv. Max-Trades und Cooldown verhindern Overtrade |
 | **S10** | Gap Up & Fade | Gap up, Abverkauf unter VWAP | Entry nur nach Reclaim. Schneller Exit wenn VWAP nicht haelt |
 | **S11** | Gap Down & Recover | Gap down, Erholung | Keine Panik-Entries; nur nach Reclaim + Confirmation |
@@ -411,7 +411,7 @@ Jeder Challenger definiert:
 | **S16** | Broker Reject bei Order | Order wird abgelehnt | CRITICAL Alert. Retry begrenzt. Ggf. Kill-Switch |
 | **S17** | Partial Fills (simuliert) | Teilfuellung | Position/Stops/Targets korrekt skaliert. Keine doppelte Exposure |
 | **S18** | Re-Entry nach Take Profit + Pullback + neuer Trend | Setup D | Cycle2 erlaubt nach Cooldown. Sizing reduziert. Profit Protection frueher |
-| **S19** | Kein Entry vormittags (DOWN), Trendwechsel nachmittags | Setup D aktiv | 10m Confirmation verhindert zu fruehes "Catch the falling knife" |
+| **S19** | Kein Entry vormittags (DOWN), Trendwechsel nachmittags | Setup D aktiv | Regime-Hysterese verhindert zu fruehes "Catch the falling knife" |
 | **S20** | End-of-Day Squeeze → Reversal | Late Ramp + Reversal | Neue Entries nach Cutoff blockiert. Offene Position geschuetzt/geschlossen (EOD flat) |
 
 ### 16.3 Regression Report
@@ -443,7 +443,7 @@ Jeder Challenger erzeugt:
 |------|-------|------|------|
 | **T1: Dataset Checksum** | Importiertes OHLCV-1m Dataset | `checksum_sha256` berechnet | Jeder Run referenziert selben Checksum, sonst Run abort |
 | **T2: Bar-Vollstaendigkeit** | 1m Bars pro Symbol/Tag | Bars validiert | Keine fehlenden Minuten in RTH, keine Duplikate, keine OHLC-Inkonsistenzen |
-| **T3: Resampling** | 1m Sequenzen | 3m/10m resampled | O=Open(1.), C=Close(last), H=max, L=min, V=sum |
+| **T3: Resampling** | 1m Sequenzen | 3m/5m resampled | O=Open(1.), C=Close(last), H=max, L=min, V=sum |
 | **T4: Determinismus ohne LLM** | Quant-only mit fixem Seed | Run 2x ausgefuehrt | `bt_day` und `bt_trade` bitgleich |
 | **T5: LLM Cache Replay** | LLM-Variante mit snapshot_hash | Run erneut ausgefuehrt | Cache wiederverwendet, `bt_day` identisch |
 | **T6: LLM Schema Validation** | LLM Output verletzt Schema | Gespeichert | `valid=false`, Variante verhaelt sich gemaess Degraded-Policy |
@@ -557,7 +557,7 @@ create table if not exists bt_decision_cycle (
   quant_conf numeric(6,5),
   llm_vote text,
   llm_conf numeric(6,5),
-  confirm_10m text,
+  regime_hysteresis text,
   snapshot_hash text not null,
   primary key (variant_id, symbol, decision_time)
 );

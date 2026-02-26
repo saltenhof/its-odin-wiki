@@ -30,7 +30,7 @@ Der ATR-Wert wird zum Zeitpunkt des Entries eingefroren. Der Faktor 2.2 (statt v
 
 **Begruendung:** Der breitere Faktor verhindert vorzeitiges Ausstoppen bei normalem Intraday-Noise. Der ATR-Freeze stellt sicher, dass die Stop-Distance waehrend des gesamten Trades konsistent bleibt -- unabhaengig davon, ob die Volatilitaet im Tagesverlauf faellt oder steigt.
 
-> **ATR-Quelle:** ATR(14) auf 3m-Bars (Decision-Frame). Der ATR wird bei Entry eingefroren und fuer die gesamte Trade-Dauer verwendet.
+> **ATR-Quelle:** ATR(14) auf 5m-Bars (Fixer KPI-Timeframe). Der ATR wird bei Entry eingefroren und fuer die gesamte Trade-Dauer verwendet.
 
 ---
 
@@ -343,7 +343,7 @@ Wenn Struktur bricht (Lower-Low, Close unter Vorbar-Low): sofortiger Exit der ge
 
 ## 14. Stop-Nachfuehrung im OMS (Normativ)
 
-Die Stop-Nachfuehrung erfolgt auf **1m-Bar-Close** (nicht nur bei 3m Decision-Bar-Close). Sie ist OMS-Maintenance, kein TradeIntent.
+Die Stop-Nachfuehrung erfolgt auf **1m-Bar-Close** (nicht nur bei Decision-Bar-Close). Sie ist OMS-Maintenance, kein TradeIntent.
 
 **Update-Cadence:**
 

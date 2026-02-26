@@ -22,7 +22,7 @@ Dieses Kapitel beschreibt die KPI-Engine und die quantitative Validierung (Quant
 
 ## 2. Stellung im Decision-Cycle
 
-Die KPI-Engine ist der **erste Schritt** im Decision-Cycle nach dem MarketSnapshotEvent. Der vollstaendige Ablauf pro Pipeline bei jedem 1m-Bar-Close:
+Die KPI-Engine ist der **erste Schritt** im Decision-Cycle nach dem MarketSnapshotEvent. Der vollstaendige Ablauf pro Pipeline bei jedem Decision-Bar-Close (3m oder 5m):
 
 ```
 odin-data: MarketSnapshotEvent publiziert
@@ -104,15 +104,17 @@ Pro Pipeline und Timeframe wird eine eigene ta4j-`BarSeries` gefuehrt. Die Bars 
 
 | Timeframe | Snapshot-Feld | BarSeries-Kapazitaet | Indikatoren |
 |-----------|--------------|---------------------|-------------|
-| 1-Min (Decision-Bar) | `decisionBars` | 390 Bars (1 Handelstag) | EMA(9), EMA(21) |
-| 5-Min | `fiveMinBars` | 78 Bars (1 Handelstag) | RSI(14), ATR(14), Bollinger(20,2), ADX(14) |
+| Decision-Bar (3m oder 5m) | `decisionBars` | 130 Bars bei 3m / 78 Bars bei 5m (1 Handelstag) | EMA(9), EMA(21) |
+| 5-Min (Fixer KPI-Timeframe) | `fiveMinBars` | 78 Bars (1 Handelstag) | RSI(14), ATR(14), Bollinger(20,2), ADX(14) |
+
+> **Drei-Layer-Trennung:** EMA(9) und EMA(21) werden auf Decision-Bars berechnet (3m oder 5m, je nach Konfiguration). ATR(14), ADX(14), RSI(14) und Bollinger(20,2) werden **IMMER auf 5m-Bars** berechnet — unabhaengig davon, ob der Decision-Layer 3m oder 5m ist. Diese Trennung stellt sicher, dass die Standard-Risikoindikatoren konsistent auf einem fixen Timeframe basieren.
 
 > **Kein 15-Min-Timeframe in v1:** Die v0.1 listete 15-Min-Indikatoren, aber der Mehrwert gegenueber 5-Min ist fuer v1 nicht belegt. Die BarSeries-Verwaltung unterstuetzt beliebige Timeframes — 15-Min kann spaeter ergaenzt werden, wenn Profiling/Backtesting den Bedarf zeigt.
 
 Bei jedem neuen Decision-Bar-Close (= jeder `MarketSnapshotEvent`) werden die BarSeries wie folgt aktualisiert:
 
 1. **Delta-Extraktion:** Neue Bars aus dem Snapshot extrahieren. Delta wird ueber `barEndTime` bestimmt — nur Bars mit `barEndTime > lastProcessedBarEndTime[timeframe]` werden eingefuegt. Bereits verarbeitete Bars werden uebersprungen (Duplikat-Schutz)
-2. **Timeframe-spezifisches Update:** 1-Min-BarSeries wird bei jedem MarketSnapshotEvent aktualisiert. 5-Min-BarSeries wird **nur** aktualisiert wenn ein neuer 5-Min-Bar im Snapshot vorliegt (erkennbar an neuem `barEndTime` in `fiveMinBars`). Zwischen 5-Min-Grenzen aendert sich die 5-Min-BarSeries nicht
+2. **Timeframe-spezifisches Update:** Decision-Bar-BarSeries wird bei jedem MarketSnapshotEvent aktualisiert (neuer Decision-Bar liegt immer vor). 5-Min-BarSeries wird **nur** aktualisiert wenn ein neuer 5-Min-Bar im Snapshot vorliegt (erkennbar an neuem `barEndTime` in `fiveMinBars`). Bei Decision-Layer = 3m liegt nicht bei jedem Decision-Cycle ein neuer 5m-Bar vor — die 5m-BarSeries bleibt zwischen 5m-Grenzen unveraendert
 3. **Indikator-Berechnung:** ta4j berechnet alle angehangenen Indikatoren automatisch bei Zugriff (Lazy Evaluation)
 
 ### Zeitregeln
@@ -137,12 +139,12 @@ Bei Tagesstart (Pipeline-Initialisierung) werden **alle ta4j-BarSeries geleert**
 
 | Indikator | Timeframe | Verwendung | ta4j-Klasse |
 |-----------|-----------|-----------|-------------|
-| EMA(9) | 1-Min | Kurzfristiger Trend | `EMAIndicator` |
-| EMA(21) | 1-Min | Kurzfristiger Trend (Kreuzung mit EMA9) | `EMAIndicator` |
-| RSI(14) | 5-Min | Ueberkauft/Ueberverkauft-Check | `RSIIndicator` |
-| ATR(14) | 5-Min | Volatilitaet, Stop-Distance, Position Sizing | `ATRIndicator` |
-| Bollinger Bands(20,2) | 5-Min | Ueberhitzungserkennung (Runner-Trailing) | `BollingerBandsMiddleIndicator` etc. |
-| ADX(14) | 5-Min | Trendstaerke-Messung | `ADXIndicator` |
+| EMA(9) | Decision-Bar (3m oder 5m) | Kurzfristiger Trend | `EMAIndicator` |
+| EMA(21) | Decision-Bar (3m oder 5m) | Kurzfristiger Trend (Kreuzung mit EMA9) | `EMAIndicator` |
+| RSI(14) | 5-Min (fixer KPI-Timeframe) | Ueberkauft/Ueberverkauft-Check | `RSIIndicator` |
+| ATR(14) | 5-Min (fixer KPI-Timeframe) | Volatilitaet, Stop-Distance, Position Sizing | `ATRIndicator` |
+| Bollinger Bands(20,2) | 5-Min (fixer KPI-Timeframe) | Ueberhitzungserkennung (Runner-Trailing) | `BollingerBandsMiddleIndicator` etc. |
+| ADX(14) | 5-Min (fixer KPI-Timeframe) | Trendstaerke-Messung | `ADXIndicator` |
 
 ### Derived Values (von KPI-Engine berechnet)
 
@@ -153,7 +155,7 @@ Bei Tagesstart (Pipeline-Initialisierung) werden **alle ta4j-BarSeries geleert**
 
 > **ATR-Decay-Ratio Baseline:** `morning_5min_ATR` wird gesetzt auf den **ersten validen ATR(14)-Wert nach Warmup-Abschluss** (d.h. der ATR-Wert beim 15. 5-Min-Bar). Bis dahin ist `atrDecayRatio = NaN`. Die Baseline wird einmal pro Tag gesetzt und aendert sich nicht mehr.
 
-> **Volumen-Ratio Referenzwert:** Der Nenner `SMA(barVolume, 20)` ist der gleitende Durchschnitt ueber die letzten 20 Decision-Bars (1-Min). Das ergibt einen stabilen, bar-bezogenen Vergleichswert ohne zeitabhaengigen Drift (anders als cumulativeVolume, das ueber den Tag waechst).
+> **Volumen-Ratio Referenzwert:** Der Nenner `SMA(barVolume, 20)` ist der gleitende Durchschnitt ueber die letzten 20 Decision-Bars (3m oder 5m). Das ergibt einen stabilen, bar-bezogenen Vergleichswert ohne zeitabhaengigen Drift (anders als cumulativeVolume, das ueber den Tag waechst).
 
 ### VWAP — Konsument, nicht Produzent
 
@@ -176,8 +178,8 @@ IndicatorResult (Record, immutable, in odin-api)
 ├── runId               : String (Join-Key zum RunContext)
 ├── instrumentId        : String
 ├── barTime             : Instant (Close-Time der Decision-Bar = Bar-End, konsistent mit Kap 2)
-├── ema9_1m             : double (NaN wenn noch nicht valid)
-├── ema21_1m            : double (NaN wenn noch nicht valid)
+├── ema9                : double (NaN wenn noch nicht valid, berechnet auf Decision-Bars)
+├── ema21               : double (NaN wenn noch nicht valid, berechnet auf Decision-Bars)
 ├── rsi14_5m            : double (NaN wenn noch nicht valid)
 ├── atr14_5m            : double (NaN wenn noch nicht valid)
 ├── bollingerUpper_5m   : double
@@ -220,7 +222,7 @@ Die Quant Validation erhaelt einen `TradeIntent` von der Rules Engine. Dieser mu
 
 ### Ein-Intent-pro-Bar Garantie
 
-Pro Decision-Cycle (= pro MarketSnapshotEvent = pro 1m-Bar-Close) erzeugt die Rules Engine **maximal einen TradeIntent** pro Pipeline. Damit ist das Tupel `(runId, instrumentId, barTime)` ein eindeutiger Key fuer den QuantScore.
+Pro Decision-Cycle (= pro MarketSnapshotEvent = pro Decision-Bar-Close) erzeugt die Rules Engine **maximal einen TradeIntent** pro Pipeline. Damit ist das Tupel `(runId, instrumentId, barTime)` ein eindeutiger Key fuer den QuantScore.
 
 **Tie-Break bei konkurrierenden Signalen:** Falls in einem Decision-Cycle sowohl ein Exit-Signal (z.B. Stop-Hit, EOD-Flat) als auch ein Entry-Signal vorliegen, gilt die Prioritaet: **Exit vor Entry**. Es wird kein neuer Entry eroeffnet solange eine bestehende Position geschlossen werden muss. Falls mehrere Entry-Patterns gleichzeitig feuern (v1: unwahrscheinlich bei Long-Only mit einem Setup-Typ pro Instrument), entscheidet die Rules Engine nach konfigurierter Pattern-Prioritaet (Details in Kap 6). Die Quant Validation sieht immer nur den einen resultierenden Intent.
 
@@ -253,7 +255,7 @@ Einzelne Checks haben ein **absolutes Veto-Recht** unabhaengig vom Gesamtscore:
 |----------------------|---------|-------------|
 | Spread > X% | 0.5% | Liquiditaet zu gering, Slippage-Risiko |
 | RSI > X | 75 | Ueberkauft, Reversal-Risiko |
-| EMA(9) < EMA(21) auf 1-Min | — | Kurzfristiger Abwaertstrend |
+| EMA(9) < EMA(21) auf Decision-Bars | — | Kurzfristiger Abwaertstrend |
 | Preis > VWAP + X% | 2% | Zu weit vom Fair Value entfernt |
 
 > **Alle Schwellenwerte sind konfigurierbar** (Properties). Die Defaults sind konservativ gewaehlt. Fuer v1 gelten einheitliche Schwellenwerte fuer alle Instrumente.
@@ -316,7 +318,7 @@ Die KPI-Engine verhaelt sich in Live und Simulation **identisch** (gleicher Code
 
 | Indikator/Feature | Tick-Replay | Bar-Replay | Kommentar |
 |-------------------|-------------|------------|-----------|
-| EMA(9), EMA(21) | Exakt (Bars aus Ticks gebaut) | Exakt (Bars direkt aus Feed) | EMA basiert auf Close-Preisen — identisch in beiden Modi |
+| EMA(9), EMA(21) | Exakt (Decision-Bars aus Ticks gebaut) | Exakt (Decision-Bars direkt aus Feed) | EMA basiert auf Close-Preisen der Decision-Bars — identisch in beiden Modi |
 | RSI(14) | Exakt | Exakt | Basiert auf Close-Preisen |
 | ATR(14) | Exakt | Exakt | Basiert auf High/Low/Close — in Bars verfuegbar |
 | Bollinger(20,2) | Exakt | Exakt | Basiert auf Close-Preisen |
@@ -394,7 +396,7 @@ Keine geteilten Indikator-Daten zwischen Pipelines. Die `PipelineFactory` (odin-
 | Phase | KPI-Engine-Verhalten |
 |-------|---------------------|
 | **INITIALIZING** | BarSeries werden erzeugt (leer). Keine Berechnung, kein Decision-Cycle |
-| **WARMUP → ACTIVE** | Decision-Cycle laeuft ab dem ersten MarketSnapshotEvent. KPI-Engine erzeugt immer IndicatorResult. `warmupComplete` wechselt automatisch zu `true` sobald alle Indikator-Perioden gefuellt sind (typisch nach 21+ 1m-Bars und 14+ 5m-Bars). Waehrend `warmupComplete = false`: Rules Engine erzeugt keinen Intent → Quant/Arbiter werden nicht aufgerufen (siehe Abschnitt 2, Warmup-Verhalten) |
+| **WARMUP → ACTIVE** | Decision-Cycle laeuft ab dem ersten MarketSnapshotEvent. KPI-Engine erzeugt immer IndicatorResult. `warmupComplete` wechselt automatisch zu `true` sobald alle Indikator-Perioden gefuellt sind (typisch nach 21+ Decision-Bars und 14+ 5m-Bars). Waehrend `warmupComplete = false`: Rules Engine erzeugt keinen Intent → Quant/Arbiter werden nicht aufgerufen (siehe Abschnitt 2, Warmup-Verhalten) |
 | **ACTIVE** | Volle Berechnung. QuantScore wird bei jedem Trade-Intent erzeugt |
 | **EOD** | Letzter IndicatorResult. Danach kein weiterer Zugriff. BarSeries werden beim naechsten SOD geleert |
 
@@ -404,7 +406,7 @@ Keine geteilten Indikator-Daten zwischen Pipelines. Die `PipelineFactory` (odin-
 
 Die KPI-Engine laeuft **synchron im Pipeline-Thread** (Kap 0, Abschnitt 6: Decision Loop strikt sequentiell). Keine eigenen Threads, kein Thread-Pool.
 
-**Begruendung:** Bei 2 Timeframes × ~7 Indikatoren × < 1ms pro Indikator ist die Gesamtdauer < 15ms — weit unter der Bar-Periode von 60s. Parallelisierung waere premature Optimization (Kap 0, Leitprinzip Lean).
+**Begruendung:** Bei 2 Timeframes × ~7 Indikatoren × < 1ms pro Indikator ist die Gesamtdauer < 15ms — weit unter der Bar-Periode von 180s (3m) bzw. 300s (5m). Parallelisierung waere premature Optimization (Kap 0, Leitprinzip Lean).
 
 > **Spaetere Optimierung:** Falls Profiling einen Bottleneck belegt (z.B. bei Erweiterung auf > 10 Timeframes), kann die Berechnung auf einen Fork-Join-Pool verlagert werden. Die API (synchroner Return von IndicatorResult) aendert sich dabei nicht.
 
@@ -424,8 +426,8 @@ odin.kpi.bollinger-period=20
 odin.kpi.bollinger-std-dev=2.0
 odin.kpi.adx-period=14
 
-# BarSeries-Kapazitaet
-odin.kpi.barseries.capacity-1m=390
+# BarSeries-Kapazitaet (Decision-Bars: 130 bei 3m, 78 bei 5m)
+odin.kpi.barseries.capacity-decision=130
 odin.kpi.barseries.capacity-5m=78
 
 # Quant-Schwellenwerte
