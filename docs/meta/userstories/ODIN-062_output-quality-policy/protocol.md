@@ -1,0 +1,29 @@
+# Protokoll: ODIN-062 -- Output Quality Policy
+
+## Working State
+- [ ] Initiale Implementierung
+- [ ] Unit-Tests geschrieben
+- [ ] ChatGPT-Sparring fuer Test-Edge-Cases
+- [ ] Integrationstests geschrieben
+- [ ] Gemini-Review Dimension 1 (Code)
+- [ ] Gemini-Review Dimension 2 (Konzepttreue)
+- [ ] Gemini-Review Dimension 3 (Praxis)
+- [ ] Review-Findings eingearbeitet
+- [ ] Playwright E2E-Tests mit Screenshots
+- [ ] Commit & Push
+
+## Design-Entscheidungen
+[Entscheidungen, die waehrend der Implementierung getroffen wurden.
+Warum so und nicht anders.]
+
+## Offene Punkte
+[Fragen, Unklarheiten, Themen die an den Stakeholder eskaliert werden muessen.]
+
+## ChatGPT-Sparring
+[Zusammenfassung: Welche Testszenarien vorgeschlagen, welche umgesetzt/verworfen.]
+
+## Gemini-Review
+[Zusammenfassung der drei Review-Dimensionen. Findings + Bewertung.]
+
+## Playwright E2E-Tests
+[Screenshot-Referenzen mit Beschreibung.]
