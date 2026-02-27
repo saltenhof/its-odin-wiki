@@ -6,7 +6,7 @@
 - [x] Unit-Tests geschrieben (TouchRegistryTest — 50 Tests)
 - [x] Alle existierenden Tests angepasst (SrLevelEngineTest, SupportLevelConfidenceTest, BounceDetectorTest, PromptBuilderTest, KpiEngineTest, PipelineFactoryTest, ParameterOverrideApplierTest, BacktestRunnerTest, BacktestRunnerGovernanceIntegrationTest, BacktestPipelineIntegrationTest, WalkForwardRunnerIntegrationTest, TradingPipelineTest, DegradationManagerIntegrationTest)
 - [x] ChatGPT-Sparring fuer Test-Edge-Cases und Reconciliation-Review
-- [ ] Integrationstests (DoD 2.3 — SrLevelEngine Pipeline-Durchlauf)
+- [x] Integrationstests (DoD 2.3 — SrTouchRegistryIntegrationTest, 9 Tests, Failsafe)
 - [x] Gemini-Review Dimension 1 (Code)
 - [x] Gemini-Review Dimension 2 (Konzepttreue)
 - [x] Gemini-Review Dimension 3 (Praxis)
@@ -42,9 +42,21 @@ Wenn zwei Levels in einer Zone ueberlappende Baender haben, werden Touches im Ue
 
 ## Offene Punkte
 
-### OP1: Integrationstests DoD 2.3 (noch ausstehend)
+### OP1: Integrationstests DoD 2.3 — ERLEDIGT (Runde 2)
 
-DoD 2.3 fordert Integrationstests fuer vollstaendige Pipeline-Durchlaeufe mit SrLevelEngine und realer TouchRegistry. Diese wurden in dieser Session noch nicht geschrieben. Geplant als naechster Schritt vor dem finalen Commit.
+DoD 2.3 wurde in Runde 2 durch `SrTouchRegistryIntegrationTest` (Failsafe, `*IntegrationTest`-Namenskonvention) vollstaendig erfuellt. Neun Integrationstests abdecken:
+
+- IT1: Vollstaendiger Pipeline-Durchlauf mit realer TouchRegistry (keine Mocks)
+- IT2: Level-Drift $41.80 → $41.95 — alte Touches bleiben am Originalpreis, kein Ghost-Touch
+- IT3: Level-Drift zurueck $41.95 → $41.80 — Original-Touches sofort wieder sichtbar
+- IT4: Zwei Level mit ueberlappenden Baendern — dokumentiertes Double-Counting (D5)
+- IT5: Registry-Integritaet nach mehreren onSnapshot()-Aufrufen — keine Duplikate, monotones Wachstum
+- IT6: End-to-End Snapshot → DBSCAN → Reconciliation → detectTouches → Registry → enrichZonesFromRegistry → SrSnapshot
+- IT7: Orphan-Lifecycle im Pipeline-Kontext — Registry-Touches bleiben nach Level-Entfernung erhalten
+- IT8: seedTouchesFromPivots → Registry → Level-Query — korrekte Pivot-Seeding-Integration
+- IT9: enrichZonesFromRegistry-Pipeline-Schritt — Zones-touchCounts entsprechen direkter Registry-Abfrage
+
+Alle 976 Unit-Tests und alle 9 Integrationstests gruен.
 
 ### OP2: Double-Counting Architekturentscheidung eskalieren
 
@@ -111,3 +123,35 @@ Gemini bestaetigt volle Konzepttreue fuer alle ODIN-058-Anforderungen:
 | "0 Cluster" friert Level ein (keine orphan-Ausfaulung) | P3 | Akzeptiert | Seltener Edge-Case; Monitoring empfohlen |
 | Integer Overflow bei Aktien > $500 | P4 | Kein Fix noetig | Max bin-Wert fuer $21M+ Aktie — kein praktisches Risiko |
 | Thread-Safety (zukuenftige Parallelisierung) | P5 | Kein Fix noetig | Single-threaded per pipeline ist ODIN-Architekturprinzip |
+
+## Remediation Runde 2 (2026-02-27)
+
+### Behobene QA-Findings
+
+**P1 (KRITISCH): Integrationstests — BEHOBEN**
+
+Neue Klasse: `SrTouchRegistryIntegrationTest.java` (Failsafe, `*IntegrationTest`)
+Pfad: `odin-brain/src/test/java/de/its/odin/brain/sr/SrTouchRegistryIntegrationTest.java`
+
+9 Integrationstests implementiert:
+- IT1: fullPipelineRun_realTouchRegistry_zonesHaveCorrectTouchCounts
+- IT2: levelDrift_oldTouchesStayAtOriginalPrice_noGhostTouches
+- IT3: levelDriftBack_levelSeesOriginalTouchesAgain
+- IT4: twoLevelsOverlappingBands_bothCountSharedTouches (dokumentiertes D5-Verhalten)
+- IT5: registryIntegrity_multipleSnapshots_noSpuriousDuplicates
+- IT6: endToEnd_detectTouchesViaRegistry_snapshotReflectsRegistryCount
+- IT7: orphanLifecycle_levelOrphanedThenRemoved_registryTouchesPreserved
+- IT8: seedTouchesFromPivots_registryContainsSeedTouches_levelQueryReturnsCorrectCount
+- IT9: enrichZonesFromRegistry_snapshotZonesReflectRegistryState
+
+Alle 976 Unit-Tests (Surefire) und alle 9 Integrationstests (Failsafe) gruен.
+
+**K1 (Minor): enrichZonesFromRegistry() — KEIN HANDLUNGSBEDARF (bestaetigt)**
+
+Die Implementierung ist funktional korrekt. SrZone delegiert touchCounts live ueber contributing levels an die Registry — kein separater "Set"-Schritt noetig. IT9 validiert diese Korrektheit explizit. Die story.md-Formulierung "setzt touchCount" ist ungenau, das Verhalten ist aber spezifikationstreu. JavaDoc erklaert den Design-Grund bereits.
+
+**K2 (Minor): Bewusste Design-Entscheidung — KEIN HANDLUNGSBEDARF**
+
+Dokumentiert in D5 (Double-Counting) und D3 (touchRegistryForTest Accessor). Beide Entscheidungen sind begruendet und getestet.
+
+**P2 (Minor): Commit & Push — ausstehend (bleibt bei QS-Agent)**
