@@ -1,5 +1,13 @@
 # ODIN-082: Adaptive Weighting via Bandit (Thompson Sampling)
 
+> **HINWEIS: Diese Story wurde in Sub-Stories aufgeteilt.**
+> Die Umsetzung erfolgt ausschliesslich ueber die Sub-Stories:
+> - **ODIN-082a** — Thompson Sampling Kern-Algorithmus (`ThompsonSamplingBandit`, `BetaDistribution`, Unit-Tests)
+> - **ODIN-082b** — Bandit-Arbiter-Integration (`DecisionArbiter`, Konfiguration, `FusionResult`, Fallback-Logik)
+> - **ODIN-082c** — Bandit-Persistierung und Reward-Anbindung (Flyway V030, `BanditStateEntity`, Counterfactual-Integration)
+>
+> Diese Parent-Story dient nur noch als Konzept- und Kontextreferenz. Nicht direkt umsetzen.
+
 **Modul:** odin-brain, odin-api, odin-core
 **Phase:** 1
 **Abhaengigkeiten:** ODIN-071 (Post-Trade Counterfactual — liefert die Reward-Signale), ODIN-074 (Regime-Dependent Arbiter Weighting — liefert die statische Gewichts-Infrastruktur)
