@@ -1,5 +1,16 @@
 # ODIN-081: VPIN (Volume-Synchronized Probability of Informed Trading)
 
+> **Diese Story wurde in Sub-Stories aufgeteilt: ODIN-081a, ODIN-081b, ODIN-081c**
+>
+> Bitte die Sub-Stories fuer die Implementierung verwenden:
+> - `ODIN-081a_vpin-volume-bucketizer/story.md` — VolumeBucketizer + BulkVolumeClassifier (Umfang M)
+> - `ODIN-081b_vpin-calculator/story.md` — VpinCalculator + KpiEngine-Integration + IndicatorResult (Umfang M)
+> - `ODIN-081c_vpin-gate-integration/story.md` — DataFlag + GateCascadeEvaluator + Persistence (Umfang S)
+>
+> Abhaengigkeitskette: 081a → 081b → 081c (sequentiell)
+>
+> Diese Eltern-Story dient als Referenzdokument und wird nicht direkt umgesetzt.
+
 **Modul:** odin-data, odin-brain, odin-api, odin-core
 **Phase:** 1
 **Abhaengigkeiten:** Keine
