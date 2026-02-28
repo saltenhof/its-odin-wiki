@@ -25,10 +25,50 @@
 - MIN_STD_DEV Guard (1e-10) gegen Division durch Null bei identischen OFI-Werten
 - Negative Varianz durch Floating-Point-Fehler wird auf 0.0 geclampt
 
+## QA Round 1 — Findings & Remediation (R2)
+
+### QA-Report
+Datei: `its-odin-backend/temp/userstories/ODIN-069/qa-report-r1.md`
+Ergebnis: FAIL (4 Findings: 2 CRITICAL, 1 SEVERE, 1 MINOR)
+
+### M1 (CRITICAL) — Fehlende IntegrationTest-Klassen
+**Problem:** Nur `*Test`-Klassen vorhanden (Surefire), keine `*IntegrationTest`-Klassen (Failsafe).
+**Fix:** Zwei neue IntegrationTest-Klassen erstellt:
+- `GateCascadeEvaluatorIntegrationTest.java` (odin-brain): 9 Tests — vollstaendige OFI Gate-Cascade E2E mit realen Gate-Implementierungen (keine Mocks). Testet OFI disabled/enabled, pass/fail, elevated mode, NaN handling, short-circuit.
+- `KpiEngineIntegrationTest.java` (odin-brain): 6 Tests — KpiEngine + OfiCalculator E2E. Testet no-ToB=NaN, first-valid-ToB=baseline-only, two-valid-ToB=ofiRaw, enough-observations=ofiZScore, reset, incomplete-ToB.
+
+### M2 (CRITICAL) — AC#6 IB Broker ToB-Extraktion
+**Problem:** `OdinEWrapper`/`IbMarketDataFeed` extrahierten keine Top-of-Book-Daten aus tickPrice/tickSize Callbacks.
+**Fix (3 Dateien):**
+- `OdinEWrapper.java`: ToB-State-Tracking per reqId via ConcurrentHashMap. tickPrice() speichert BID/ASK-Preise (Field 1/2), tickSize() speichert BID/ASK-Sizes (Field 0/3). Cleanup in removeTickListener(). Neue Methode getTopOfBookState().
+- `EventPayloadParser.java`: TickData Record um optionale bidSize/askSize erweitert (NaN wenn nicht im Payload). Neue extractOptionalDouble() Methode.
+- `DataPipelineService.java`: bestBidSize/bestAskSize Felder hinzugefuegt, processTick() extrahiert Sizes aus TickData, createCurrentSnapshot() uebergibt currentBid/currentAsk (mit >0 Guard) und tracked Sizes statt NaN.
+
+### M3 (SEVERE) — FULL_GATE_COUNT nicht aktualisiert
+**Problem:** `GateCascadeIntegrationTest.FULL_GATE_COUNT = 7` statt 8 nach OFI-Integration.
+**Fix:** Konstante auf 8 aktualisiert, alle Test-Evaluierungslisten um GateType.OFI erweitert.
+
+### M4 (MINOR) — GateType.OFI nicht in Integrationstest-Szenarien
+**Problem:** OFI fehlte in allen Szenarien des bestehenden Integrationstests.
+**Fix:** GateType.OFI als zweiter Eintrag (nach SPREAD) in allen Evaluierungslisten hinzugefuegt. Neuer Test `fullCascade_ofiGateFails_firstFailedGateIsOfi()` erstellt.
+
+### Test-Ergebnisse R2
+| Modul | Test-Klasse | Tests | Status |
+|-------|------------|-------|--------|
+| odin-api | GateCascadeIntegrationTest | 4 | PASS |
+| odin-brain | OfiCalculatorTest | 27 | PASS |
+| odin-brain | OfiGateTest | 16 | PASS |
+| odin-brain | GateCascadeEvaluatorTest | 44 | PASS |
+| odin-brain | GateCascadeEvaluatorIntegrationTest | 9 | PASS |
+| odin-brain | KpiEngineIntegrationTest | 6 | PASS |
+| odin-data | EventPayloadParserTest | 6 | PASS |
+| **Gesamt** | | **112** | **PASS** |
+
+Build: `mvn clean install -DskipTests` — BUILD SUCCESS (alle 11 Module).
+
 ## Offene Punkte
 - **Numerische Stabilitaet (Gemini Dim 3):** Naive Varianz-Formel (sumSquared/n - mean^2) koennte bei sehr grossen Werten numerische Instabilitaet zeigen. Welford's Online-Algorithmus waere praeziser, aber fuer die aktuellen OFI-Wertegroessen (max ~10^4) ist die naive Formel ausreichend. Bei Bedarf als Improvement implementieren.
 - **Observation-Frequenz (Gemini Dim 3):** Das Z-Score-Fenster (Default 20) zaehlt OFI-Observationen, nicht Zeitfenster. Bei unterschiedlicher Tick-Frequenz (z.B. ruhige vs. volatile Phasen) koennte die Z-Score-Interpretation variieren. Fuer V1 akzeptabel, in V2 ggf. zeitbasiertes Fenster.
-- **IB Broker-Integration:** Tick-Daten (bestBid/bestAsk) werden noch nicht aus der IB TWS API befuellt. MarketSnapshot-Felder sind vorbereitet (NaN-Default). Integration in OdinEWrapper/IbMarketDataFeed ist separates Arbeitspaket.
 
 ## ChatGPT-Sparring
 
