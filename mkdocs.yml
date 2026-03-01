@@ -63,6 +63,7 @@ nav:
       - "09 — Backtesting & Evaluation": concept/09-backtesting-evaluation.md
       - "10 — Observability": concept/10-observability.md
       - "11 — Edge Cases & Failure Modes": concept/11-edge-cases.md
+    - "Quant-Engine Übersicht": concept/quant-engine-overview.md
     - "Archiv":
       - Fachkonzept: concept/archiv/intraday-agent-concept.md
       - "Strategieoptimierung & LLM-Integration": concept/archiv/strategy-optimization-sparring.md
