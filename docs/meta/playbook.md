@@ -28,9 +28,9 @@ Der Orchestrator **implementiert nichts selbst** — keine Datei-Reads, kein Cod
 
 Ein dedizierter Sub-Agent pro Story. Er:
 
-- Liest die Story-Definition (`story.md`) und alle referenzierten Dokumente
+- Liest die Story-Definition (GitHub Issue via `gh issue view`) und alle referenzierten Dokumente
 - Implementiert Code, Tests, ChatGPT-Sparring und Gemini-Review
-- Fuehrt die komplette DoD ab (siehe `user-story-specification.md` Abschnitt 2)
+- Fuehrt die komplette DoD ab (siehe `user-story-specification.md` Abschnitt 5)
 - Schreibt das Protokoll (`protocol.md`) live waehrend der Arbeit
 - Committed und pusht bei Abschluss
 - Bricht sofort ab bei blockierten DoD-Schritten (Fail-Fast)
@@ -59,7 +59,7 @@ fuer jede Story:
     warte auf Abschluss → verifiziere Beweise
     starte QS-Agent (Background, Opus)
     warte auf binaeres Signal:
-      PASS  → Story abgeschlossen → BREAK
+      PASS  → Telemetrie aggregieren → GitHub Project aktualisieren → Story abgeschlossen → BREAK
       FAIL und runde < 3 → runde++ → LOOP (neuer Worker mit qa-report als Input)
       FAIL und runde == 3 → ESKALATION an User
 ```
@@ -85,7 +85,69 @@ fuer jede Story:
 3. Worker behebt ALLE Findings vollstaendig
 4. Danach erneut QS-Runde
 
-### 2.4 Eskalation (nach 3x FAIL)
+### 2.4 Story-Abschluss durch Orchestrator (nach PASS)
+
+Nach QS-PASS ist die Implementierung abgeschlossen, aber die **Story ist erst dann Done, wenn der Orchestrator die Metriken im GitHub Project aktualisiert hat.** Dieser Schritt ist NICHT Aufgabe des Worker- oder QS-Agents — er wird ausschliesslich vom Orchestrator ausgefuehrt.
+
+#### Ablauf:
+
+1. **Per-Story Telemetrie-Datei lesen** — `_temp/story-telemetry/<STORY-ID>.jsonl`
+   - Pro Story existiert eine eigene Datei (5-20 Zeilen), NICHT ein monolithisches Log
+   - Kein grep-Filtern noetig — die Datei enthaelt NUR Events dieser Story
+2. **Metriken aggregieren:**
+   - **Processing Time (min):** Summe aller `(agent_end.ts - agent_start.ts)` Paare
+   - **ChatGPT Calls:** Anzahl `chatgpt_call` Events
+   - **Gemini Calls:** Anzahl `gemini_call` Events
+   - **QA Rounds:** Anzahl QS-Runden (der Orchestrator kennt diese aus dem Zyklus)
+3. **GitHub Project aktualisieren** — alle vier Metriken-Felder setzen:
+   - `QA Rounds` (NUMBER)
+   - `ChatGPT Calls` (NUMBER)
+   - `Gemini Calls` (NUMBER)
+   - `Processing Time (min)` (NUMBER)
+4. **GitHub Issue schliessen** — `gh issue close <NR> --repo <REPO> --reason completed`
+5. **Status auf Done** — im GitHub Project den Status-Wert setzen
+6. **Optional: Telemetrie-Datei loeschen** — `rm _temp/story-telemetry/<STORY-ID>.jsonl`
+
+#### Aggregation aus der Per-Story Telemetrie-Datei:
+
+```bash
+# Gesamte Datei lesen (typisch 5-20 Zeilen — kein Kontextproblem)
+cat _temp/story-telemetry/ODIN-042.jsonl
+
+# ChatGPT Calls zaehlen
+grep -c '"chatgpt_call"' _temp/story-telemetry/ODIN-042.jsonl
+
+# Gemini Calls zaehlen
+grep -c '"gemini_call"' _temp/story-telemetry/ODIN-042.jsonl
+
+# Processing Time: agent_start/agent_end Timestamps → Differenz berechnen
+grep '"agent_' _temp/story-telemetry/ODIN-042.jsonl
+```
+
+Die Processing Time wird als Summe der Differenzen aller `agent_start`/`agent_end`-Paare berechnet (in Minuten, gerundet). Mehrere Agent-Zyklen (Worker, QS, Rework) werden addiert.
+
+#### GraphQL-Mutation fuer Feld-Updates:
+
+```graphql
+mutation {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: "PVT_kwHODdCDrM4BQeRU",
+    itemId: "<ITEM_ID>",
+    fieldId: "<FIELD_ID>",
+    value: { number: <WERT> }
+  }) { projectV2Item { id } }
+}
+```
+
+Field-IDs: siehe `user-story-specification.md` Abschnitt 2.5.
+
+#### Warum der Orchestrator und nicht der Agent?
+
+- **Determinismus:** Die Telemetrie wird durch einen Hook automatisch geschrieben — kein LLM muss sich an Zaehler erinnern. Aber das **Auslesen und Aggregieren** erfordert Ueberblick ueber den gesamten Story-Zyklus (alle Runden, alle Agents).
+- **Der Worker kennt seinen eigenen Kontext nicht:** Er weiss nicht, wie viele QS-Runden gelaufen sind, wie viele Agents vor ihm aktiv waren, oder wie lange er insgesamt gebraucht hat.
+- **Single Responsibility:** Der Worker implementiert, der QS-Agent prueft, der Orchestrator schliesst ab. Metriken-Update ist Teil des Abschlusses.
+
+### 2.5 Eskalation (nach 3x FAIL)
 
 Nach 3 gescheiterten Runden unterbricht der Orchestrator den Zyklus und informiert den User mit:
 
@@ -162,14 +224,14 @@ Jeder Worker-Prompt MUSS enthalten:
 
 | # | Bestandteil | Inhalt |
 |---|-------------|--------|
-| 1 | Story-Datei | Pfad zur `story.md` — Agent liest sie selbst |
+| 1 | Issue-URL | GitHub Issue URL — Agent liest via `gh issue view` |
 | 2 | User-Story-Spezifikation | `docs/meta/user-story-specification.md` — vollstaendige DoD |
 | 3 | CLAUDE.md | `T:\codebase\its_odin\CLAUDE.md` — Coding-Regeln, Architektur |
 | 4 | Konzeptdateien | Pfade zu den in der Story referenzierten Konzeptdokumenten |
 | 5 | Guardrails | Pfade zu den relevanten Guardrail-Dokumenten |
 | 6 | QA-Report | Bei Remediation: Pfad zur `qa-report-r<N>.md` der Vorrunde |
 | 7 | Rundennummer | Explizit angeben (fuer QS-Agent-Dateinamen) |
-| 8 | Ausfuehrungsanweisung | "Lies die User-Story-Spezifikation und befolge ALLE DoD-Punkte 2.1 bis 2.8. Ueberspringe KEINEN Schritt. Bei Blockern: abbrechen und Fehler melden." |
+| 8 | Ausfuehrungsanweisung | "Lies die User-Story-Spezifikation und befolge ALLE DoD-Punkte 5.1 bis 5.7. Ueberspringe KEINEN Schritt. Bei Blockern: abbrechen und Fehler melden." |
 
 ### 4.2 QS-Agent
 
@@ -177,11 +239,11 @@ Jeder QS-Prompt MUSS enthalten:
 
 | # | Bestandteil | Inhalt |
 |---|-------------|--------|
-| 1 | Story-Datei | Pfad zur `story.md` |
+| 1 | Issue-URL | GitHub Issue URL — Agent liest via `gh issue view` |
 | 2 | User-Story-Spezifikation | `docs/meta/user-story-specification.md` |
 | 3 | CLAUDE.md | `T:\codebase\its_odin\CLAUDE.md` |
 | 4 | Rundennummer | N (bestimmt Dateiname: `qa-report-r<N>.md`) |
-| 5 | Pruefauftrag | "Pruefe ALLE DoD-Kriterien aus Abschnitt 2.1-2.8 gegen den tatsaechlichen Code und die Protokolldatei. Schreibe Findings in den Wiki-Story-Ordner: `docs/meta/userstories/<STORY-ORDNER>/qa-report-r<N>.md`. Melde PASS oder FAIL." |
+| 5 | Pruefauftrag | "Pruefe ALLE DoD-Kriterien aus Abschnitt 5.1-5.7 gegen den tatsaechlichen Code und die Protokolldatei. Schreibe Findings in den Wiki-Story-Ordner: `docs/meta/userstories/<STORY-ORDNER>/qa-report-r<N>.md`. Melde PASS oder FAIL." |
 
 ### 4.3 Pflichtregeln im Prompt
 
@@ -197,18 +259,24 @@ Folgende Regeln muessen in JEDEM Agent-Prompt explizit stehen (werden bei Contex
 
 ## 5. DoD-Kurzreferenz
 
-Vollstaendige DoD in `user-story-specification.md` Abschnitt 2. Hier die Schritte im Ueberblick:
+Vollstaendige DoD in `user-story-specification.md` Abschnitt 5. Hier die Schritte im Ueberblick:
 
 ```
-1. Code-Implementierung (2.1: Qualitaet, Naming, JavaDoc, keine TODOs)
-2. Unit-Tests (2.2: *Test, Mocks fuer Ports, Bugfix → reproduzierender Test)
-3. Integrationstests (2.3: *IntegrationTest, reale Klassen, min. 1 E2E pro Story)
-4. DB-Tests falls zutreffend (2.4: Zonky, Flyway, echte DB)
-5. ChatGPT-Sparring (2.5: Edge Cases, Grenzfaelle → protocol.md)
-6. Gemini-Review 3 Dimensionen (2.6: Code-Bugs, Konzepttreue, Praxis-Gaps)
-7. Findings einarbeiten
-8. Protokolldatei aktualisieren (2.7: protocol.md mit allen Pflichtabschnitten)
-9. Commit + Push (2.8: aussagekraeftige Message)
+Worker-Agent:
+  1. Code-Implementierung (5.1: Qualitaet, Naming, JavaDoc, keine TODOs)
+  2. Unit-Tests (5.2: *Test, Mocks fuer Ports, Bugfix → reproduzierender Test)
+  3. Integrationstests (5.3: *IntegrationTest, reale Klassen, min. 1 E2E pro Story)
+  4. DB-Tests falls zutreffend (5.4: Zonky, Flyway, echte DB)
+  5. ChatGPT-Sparring (5.5: Edge Cases, Grenzfaelle → protocol.md)
+  6. Gemini-Review 3 Dimensionen (5.6: Code-Bugs, Konzepttreue, Praxis-Gaps)
+  7. Findings einarbeiten
+  8. Protokolldatei aktualisieren (protocol.md mit allen Pflichtabschnitten)
+  9. Commit + Push (aussagekraeftige Message)
+
+Orchestrator (nach QS-PASS — NICHT delegierbar):
+  10. Telemetrie-Log aggregieren (Processing Time, ChatGPT Calls, Gemini Calls)
+  11. GitHub Project Metriken aktualisieren (QA Rounds, Calls, Processing Time)
+  12. GitHub Issue schliessen + Status "Done" setzen
 ```
 
 ---
@@ -217,7 +285,7 @@ Vollstaendige DoD in `user-story-specification.md` Abschnitt 2. Hier die Schritt
 
 Vor dem Start:
 
-- [ ] Story hat `story.md` mit allen Pflichtfeldern
+- [ ] Story hat GitHub Issue mit allen Pflichtfeldern (Abschnitt 2.2 der Spezifikation)
 - [ ] Alle Abhaengigkeiten sind PASS
 - [ ] Kein anderer Agent arbeitet am gleichen Modul (oder Worktree-Isolation)
 - [ ] Prompt enthaelt alle 8 Pflichtbestandteile (Abschnitt 4.1)
@@ -233,8 +301,19 @@ Nach QS-Abschluss:
 
 - [ ] Binaeres Signal empfangen (PASS oder FAIL)
 - [ ] Bei FAIL: Findings-Datei existiert, Runde inkrementieren
-- [ ] Bei PASS: Story im Index als Done markieren
 - [ ] Bei 3x FAIL: Eskalation an User
+
+Nach PASS — Story-Abschluss (NUR Orchestrator, NICHT delegieren):
+
+- [ ] Per-Story Telemetrie-Datei lesen: `cat _temp/story-telemetry/<STORY-ID>.jsonl`
+- [ ] Processing Time berechnen (Summe agent_start/agent_end Differenzen, in Minuten)
+- [ ] ChatGPT Calls zaehlen (`chatgpt_call` Events)
+- [ ] Gemini Calls zaehlen (`gemini_call` Events)
+- [ ] QA Rounds bestimmen (Anzahl QS-Runden aus dem Zyklus)
+- [ ] GitHub Project Felder aktualisieren: Processing Time, ChatGPT Calls, Gemini Calls, QA Rounds
+- [ ] GitHub Issue schliessen (`gh issue close <NR> --repo <REPO> --reason completed`)
+- [ ] GitHub Project Status auf "Done" setzen
+- [ ] Story ist ERST JETZT Done — nicht vorher
 
 ---
 
