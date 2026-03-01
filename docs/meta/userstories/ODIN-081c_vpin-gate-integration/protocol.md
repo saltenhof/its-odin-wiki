@@ -10,6 +10,8 @@
 - [x] Gemini-Review Dimension 3 (Praxis)
 - [x] Review-Findings eingearbeitet
 - [x] Commit & Push
+- [x] QA Runde 1 — FAIL (3 Findings)
+- [x] Remediation Runde 2 — alle 3 Findings behoben
 
 ## Design-Entscheidungen
 
@@ -103,3 +105,43 @@ Hysteresis und DB-Constraints sind sinnvolle zukuenftige Erweiterungen.
 - odin-app: 305 Tests, 0 Failures, 0 Errors
 - odin-backtest: 369 Tests, 0 Failures, 0 Errors
 - odin-data: 292 Tests, 0 Failures, 0 Errors
+
+## QA-Remediation Runde 2
+
+### Behobene Findings
+
+#### FAIL-1: IndicatorSnapshotVpinIntegrationTest (CRITICAL)
+- **Problem**: Zonky Embedded-Postgres-Test fuer Flyway V031 fehlte komplett.
+- **Fix**: Neue Testklasse `IndicatorSnapshotVpinIntegrationTest` erstellt mit 5 Tests:
+  1. `flywayMigration_v031_addsVpinColumn` — V031 laeuft fehlerfrei
+  2. `saveAndLoad_withVpinValue_persistsCorrectly` — Entity mit vpin=0.72 Round-Trip
+  3. `saveAndLoad_withNullVpin_persistsAsNull` — NULL-Vertraeglichkeit (non-destructive Migration)
+  4. `saveAndLoad_allFieldsWithVpin_correctRoundTrip` — Alle Felder korrekt nach Konstruktor-Erweiterung
+  5. `findByRunIdAndInstrumentId_worksWithVpinColumn` — Repository-Query funktioniert mit vpin-Spalte
+- **Infrastruktur**: Zonky-Dependencies in odin-brain/pom.xml, application.properties und V000__stub_timescaledb.sql fuer Test-Ressourcen angelegt.
+- **Ergebnis**: 5 Tests, 0 Failures, 0 Errors (Zonky Embedded Postgres)
+
+#### FAIL-2: VpinFlagTest — Conditional Assertion (HIGH)
+- **Problem**: `if (!Double.isNaN(...) && ... >= 0.70)` — Test passiert ohne Assertion wenn VPIN nie 0.70 erreicht.
+- **Fix**: Drei harte Assertions statt if-Bedingung:
+  1. `assertFalse(Double.isNaN(...))` — VPIN muss nach 20 Bars mit windowSize=5 finite sein
+  2. `assertTrue(vpin >= 0.70)` — Test-Setup muss Threshold erreichen (buyRatio ~0.97 pro Bar ergibt VPIN ~0.93)
+  3. `assertTrue(flags.contains(VPIN_ELEVATED))` — Flag muss gesetzt sein
+- **Ergebnis**: 4 Tests, 0 Failures
+
+#### FAIL-3: VpinGateIntegrationTest — Conditional Assertion (HIGH)
+- **Problem**: `if (lastResult.flags().contains(VPIN_ELEVATED))` — Test passiert trivial wenn Flag nie gesetzt.
+- **Fix**: Zwei harte Assertions VOR der Gate-Verifikation:
+  1. `assertFalse(Double.isNaN(...))` — VPIN muss finite sein
+  2. `assertTrue(flags.contains(VPIN_ELEVATED))` — Flag muss gesetzt sein
+  DecisionArbiter-Pfad wird jetzt IMMER ausgefuehrt, nicht mehr bedingt.
+- **Ergebnis**: 2 Tests, 0 Failures
+
+### Zusaetzliche Dateien (Runde 2)
+
+- `odin-brain/src/test/java/de/its/odin/brain/persistence/IndicatorSnapshotVpinIntegrationTest.java` — NEU (5 DB-Tests)
+- `odin-brain/src/test/resources/application.properties` — NEU (Zonky Test-Config)
+- `odin-brain/src/test/resources/db/migration/V000__stub_timescaledb.sql` — NEU (TimescaleDB-Stub)
+- `odin-brain/pom.xml` — Zonky-Dependencies hinzugefuegt
+- `odin-brain/src/test/java/de/its/odin/brain/kpi/VpinFlagTest.java` — Conditional Assertions zu harten Assertions
+- `odin-brain/src/test/java/de/its/odin/brain/kpi/VpinGateIntegrationTest.java` — Conditional Assertions zu harten Assertions
