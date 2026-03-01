@@ -9,7 +9,8 @@
 - [x] Gemini-Review Dimension 2 (Konzepttreue)
 - [x] Gemini-Review Dimension 3 (Praxis)
 - [x] Review-Findings eingearbeitet
-- [x] Commit & Push
+- [x] KpiEngineTest um VPIN-Unit-Tests erweitert (2 neue Tests: vpinEnabled_afterWarmup_vpinIsValid, vpinDisabled_vpinIsNaN)
+- [x] Commit & Push (Remediation R2)
 
 ## Design-Entscheidungen
 
