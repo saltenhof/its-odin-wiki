@@ -42,7 +42,7 @@ Ein dedizierter Sub-Agent pro Story, gestartet NACH dem Worker. Er:
 - Prueft alle DoD-Kriterien gegen den tatsaechlichen Code und die Protokolldatei
 - Fuehrt Build und Tests aus (`mvn clean install`)
 - Vergleicht Implementierung gegen Konzeptdokumente (Konzepttreue)
-- Schreibt Findings in `temp/userstories/<STORY-ID>/qa-report-r<N>.md`
+- Schreibt Findings in den Wiki-Story-Ordner: `docs/meta/userstories/<STORY-ORDNER>/qa-report-r<N>.md`
 - Meldet binaeres Signal an den Orchestrator: **PASS** oder **FAIL**
 - Bei PASS: kein weiterer Handlungsbedarf
 - Bei FAIL: Findings-Datei enthaelt strukturierte Maengelliste
@@ -75,7 +75,7 @@ fuer jede Story:
 
 1. Orchestrator startet QS-Agent mit: Story-Pfad, Spezifikation, Rundennummer
 2. QS-Agent prueft alle DoD-Punkte systematisch
-3. QS-Agent schreibt Findings: `temp/userstories/<STORY-ID>/qa-report-r<N>.md`
+3. QS-Agent schreibt Findings in den Wiki-Story-Ordner: `docs/meta/userstories/<STORY-ORDNER>/qa-report-r<N>.md`
 4. QS-Agent meldet PASS oder FAIL
 
 ### 2.3 Remediation (bei FAIL)
@@ -91,7 +91,7 @@ Nach 3 gescheiterten Runden unterbricht der Orchestrator den Zyklus und informie
 
 - Story-ID und Titel
 - Anzahl Runden (3)
-- Pfad zur letzten Findings-Datei (`qa-report-r3.md`)
+- Pfad zur letzten Findings-Datei im Wiki-Story-Ordner (`qa-report-r3.md`)
 - Zusammenfassung der wiederkehrenden Probleme
 - Empfehlung fuer naechste Schritte
 
@@ -181,16 +181,17 @@ Jeder QS-Prompt MUSS enthalten:
 | 2 | User-Story-Spezifikation | `docs/meta/user-story-specification.md` |
 | 3 | CLAUDE.md | `T:\codebase\its_odin\CLAUDE.md` |
 | 4 | Rundennummer | N (bestimmt Dateiname: `qa-report-r<N>.md`) |
-| 5 | Pruefauftrag | "Pruefe ALLE DoD-Kriterien aus Abschnitt 2.1-2.8 gegen den tatsaechlichen Code und die Protokolldatei. Schreibe Findings in `temp/userstories/<STORY-ID>/qa-report-r<N>.md`. Melde PASS oder FAIL." |
+| 5 | Pruefauftrag | "Pruefe ALLE DoD-Kriterien aus Abschnitt 2.1-2.8 gegen den tatsaechlichen Code und die Protokolldatei. Schreibe Findings in den Wiki-Story-Ordner: `docs/meta/userstories/<STORY-ORDNER>/qa-report-r<N>.md`. Melde PASS oder FAIL." |
 
 ### 4.3 Pflichtregeln im Prompt
 
 Folgende Regeln muessen in JEDEM Agent-Prompt explizit stehen (werden bei Context-Compaction sonst vergessen):
 
-- **DB-Zugriff:** `"T:/codebase/its_odin/tools/odin-db.sh" "SQL"` — kein direktes `psql`
+- **DB-Zugriff:** `"T:/codebase/its_odin/odin-db.sh" "SQL"` — kein direktes `psql`
 - **Build vor Tests:** `mvn clean install -DskipTests` vor jedem Test-Run oder Spring-Boot-Start
 - **Backend-Start:** Nur aus Hauptagent-Kontext mit `run_in_background`
 - **Temp-Dateien:** Nach Verwendung sofort loeschen, niemals committen
+- **QA-Reports:** Gehoeren in den Wiki-Story-Ordner (persistent), NICHT in `temp/` (fluechtig)
 
 ---
 
@@ -244,5 +245,5 @@ Wenn der Orchestrator nach einem Context-Reset hier landet:
 1. **Lies dieses Playbook** — Prozessregeln
 2. **Lies den Index** (`docs/meta/userstories/INDEX.md`) — aktueller Fortschritt
 3. **Pruefe laufende Agents** — gibt es offene Worker oder QS-Agents?
-4. **Pruefe `temp/userstories/`** — gibt es offene QA-Reports ohne Abschluss?
+4. **Pruefe Wiki-Story-Ordner** — gibt es QA-Reports ohne PASS-Abschluss?
 5. **Weiter im Zyklus** — naechste Story oder Remediation-Runde starten
