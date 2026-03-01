@@ -50,23 +50,49 @@ Jede User Story wird als **GitHub Issue** erstellt. Das Issue IST die Story-Defi
 
 ### 2.1 Issue-Erstellung per CLI
 
+Die Issue-Erstellung ist ein **Zwei-Schritt-Prozess**, weil die Story-ID (= GitHub Issue-Nummer) erst nach dem Erstellen bekannt ist, aber im Titel stehen muss.
+
+**Schritt 1: Issue erstellen (ohne Story-ID im Titel)**
+
 ```bash
 export GH_CONFIG_DIR="/c/Users/Sir Freejack/AppData/Roaming/GitHub CLI"
 
-gh issue create --repo saltenhof/<REPO> \
+ISSUE_URL=$(gh issue create --repo saltenhof/<REPO> \
   --title "<Titel der Story>" \
   --label "<labels>" \
   --body "$(cat <<'EOF'
 [Issue-Body mit allen Pflichtfeldern — siehe Abschnitt 2.2]
 EOF
-)"
+)")
+
+# Issue-Nummer extrahieren
+ISSUE_NR=$(echo "$ISSUE_URL" | grep -oP '\d+$')
 ```
 
-Nach Erstellung: Issue dem Project zuordnen und Custom Fields setzen:
+**Schritt 2: Titel mit Story-ID versehen**
+
+```bash
+gh issue edit $ISSUE_NR --repo saltenhof/<REPO> \
+  --title "ODIN-${ISSUE_NR}: <Titel der Story>"
+```
+
+**Pflicht-Format fuer Issue-Titel:** `ODIN-<NR>: <Titel>`
+
+Beispiele:
+- `ODIN-89: Databento Tick Tables — Flyway Migrations`
+- `ODIN-94: DatabentoBatchService — Download Orchestration`
+- `ODIN-FIX-002: Null Pointer in Gate Cascade`
+
+Die Story-ID (`ODIN-<NR>`) ist die kanonische Referenz fuer die Story — in Prompts, Telemetrie-Logs, Verzeichnisnamen und Kommunikation.
+
+**Schritt 3: Dem Project zuordnen und Custom Fields setzen**
 
 ```bash
 # Issue dem Project zuordnen
-gh project item-add 2 --owner saltenhof --url <ISSUE-URL>
+gh project item-add 2 --owner saltenhof --url $ISSUE_URL
+
+# Created At setzen (heutiges Datum)
+# → siehe Abschnitt 2.4 fuer GraphQL-Mutation
 ```
 
 ### 2.2 Pflichtfelder im Issue-Body
@@ -152,10 +178,12 @@ Nach Erstellung des Issues muessen die Project-Felder gesetzt werden:
 | **Size** | Bei Story-Erstellung | Story-Ersteller |
 | **Module** | Bei Story-Erstellung | Story-Ersteller |
 | **Epic** | Bei Story-Erstellung | Story-Ersteller |
+| **Created At** | Bei Story-Erstellung | Story-Ersteller |
 | **QA Rounds** | Nach Story-Abschluss | Orchestrator |
 | **Gemini Calls** | Nach Story-Abschluss | Orchestrator |
 | **ChatGPT Calls** | Nach Story-Abschluss | Orchestrator |
 | **Processing Time (min)** | Nach Story-Abschluss | Orchestrator |
+| **Completed At** | Nach Story-Abschluss | Orchestrator |
 
 ### 2.5 GitHub Project IDs (ODIN-Instanz)
 
@@ -178,6 +206,8 @@ Nach Erstellung des Issues muessen die Project-Felder gesetzt werden:
 | QA Rounds | `PVTF_lAHODdCDrM4BQeRUzg-lQWE` | NUMBER |
 | Module | `PVTF_lAHODdCDrM4BQeRUzg-lQWw` | TEXT |
 | Epic | `PVTF_lAHODdCDrM4BQeRUzg-lQW0` | TEXT |
+| Created At | `PVTF_lAHODdCDrM4BQeRUzg-l2rU` | DATE |
+| Completed At | `PVTF_lAHODdCDrM4BQeRUzg-l2sA` | DATE |
 
 #### Status-Optionen
 
@@ -426,6 +456,7 @@ Jede fertig implementierte Komponente MUSS von Gemini reviewed werden. Das Revie
 
 - [ ] Per-Story Telemetrie-Datei lesen (`_temp/story-telemetry/<STORY-ID>.jsonl`) und aggregieren: Processing Time, ChatGPT Calls, Gemini Calls
 - [ ] GitHub Project Metriken setzen: QA Rounds, Gemini Calls, ChatGPT Calls, Processing Time (min)
+- [ ] GitHub Project `Completed At` auf heutiges Datum setzen
 - [ ] GitHub Issue geschlossen (`gh issue close <NR> --repo <REPO> --reason completed`)
 - [ ] GitHub Project Status auf "Done" gesetzt
 - [ ] Story ist ERST nach diesem Schritt abgeschlossen
@@ -604,7 +635,8 @@ Vor dem Veroeffentlichen einer Story pruefen:
 
 ### GitHub-Integration
 - [ ] Issue im richtigen Repo erstellt (`its-odin-backend`, `its-odin-ui` oder `its-odin-wiki`)
+- [ ] Titel enthaelt Story-ID: `ODIN-<NR>: <Titel>` (nach Erstellung via `gh issue edit` setzen)
 - [ ] Issue dem Project "ODIN" zugeordnet (`gh project item-add 2 --owner saltenhof`)
-- [ ] Custom Fields gesetzt: Size, Module, Epic
+- [ ] Custom Fields gesetzt: Size, Module, Epic, Created At
 - [ ] Labels gesetzt (mindestens `story`, `bug`, `refactoring` oder `infrastructure`)
 - [ ] Abhaengigkeiten als Issue-Referenzen (`#NR` oder `owner/repo#NR`)

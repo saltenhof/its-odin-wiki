@@ -275,7 +275,7 @@ Worker-Agent:
 
 Orchestrator (nach QS-PASS — NICHT delegierbar):
   10. Telemetrie-Log aggregieren (Processing Time, ChatGPT Calls, Gemini Calls)
-  11. GitHub Project Metriken aktualisieren (QA Rounds, Calls, Processing Time)
+  11. GitHub Project Metriken aktualisieren (QA Rounds, Calls, Processing Time, Completed At)
   12. GitHub Issue schliessen + Status "Done" setzen
 ```
 
@@ -311,6 +311,7 @@ Nach PASS — Story-Abschluss (NUR Orchestrator, NICHT delegieren):
 - [ ] Gemini Calls zaehlen (`gemini_call` Events)
 - [ ] QA Rounds bestimmen (Anzahl QS-Runden aus dem Zyklus)
 - [ ] GitHub Project Felder aktualisieren: Processing Time, ChatGPT Calls, Gemini Calls, QA Rounds
+- [ ] GitHub Project `Completed At` auf heutiges Datum setzen
 - [ ] GitHub Issue schliessen (`gh issue close <NR> --repo <REPO> --reason completed`)
 - [ ] GitHub Project Status auf "Done" setzen
 - [ ] Story ist ERST JETZT Done — nicht vorher
