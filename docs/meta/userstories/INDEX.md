@@ -1,6 +1,6 @@
 # ODIN User Story Index
 
-**Stand:** 2026-02-28
+**Stand:** 2026-03-01
 **Kanonischer Pfad:** `its-odin-wiki/docs/meta/userstories/`
 
 ---
@@ -10,8 +10,8 @@
 | Kategorie | Anzahl |
 |-----------|--------|
 | Gesamt (inkl. Sub-Stories) | 90 |
-| Abgeschlossen | 58 |
-| Offen | 27 |
+| Abgeschlossen | 85 |
+| Offen | 0 |
 | Phase 2 (zurueckgestellt) | 5 |
 
 ---
@@ -116,55 +116,56 @@
 
 ---
 
-## Research-Themen (ODIN-065 bis ODIN-083) — ALLE OFFEN
+## Research-Themen (ODIN-065 bis ODIN-083) — ALLE ABGESCHLOSSEN
 
 Basierend auf der Research-Synthese vom 2026-02-28 (5 Quellen: eigene Agents, ChatGPT Deep Research, Gemini Deep Research).
 Themen 5 (News-Integration), 18 (Prompt-Injection) und 21 (Vision-Modul) wurden vom Stakeholder abgelehnt.
+Alle 27 Stories am 2026-03-01 abgeschlossen (autonome Ausfuehrung via Playbook).
 
 ### P0 — Fundament
 
 | ID | Titel | Umfang | Abhaengigkeiten | Status |
 |----|-------|--------|-----------------|--------|
-| ODIN-065 | Intraday Seasonality Normalization | M | Keine | Offen |
-| ODIN-066 | Backtesting Robustness (PBO, DSR, Monte Carlo) | L | Keine | Offen |
-| ODIN-067 | Execution Quality Feedback (TCA) | L | Keine | Offen |
+| ODIN-065 | Intraday Seasonality Normalization | M | Keine | Done |
+| ODIN-066 | Backtesting Robustness (PBO, DSR, Monte Carlo) | L | Keine | Done |
+| ODIN-067 | Execution Quality Feedback (TCA) | L | Keine | Done |
 
 ### P1 — Kernverbesserungen
 
 | ID | Titel | Umfang | Abhaengigkeiten | Status |
 |----|-------|--------|-----------------|--------|
-| ODIN-068 | HMM Regime Detection | L | Keine | Offen |
-| ODIN-069 | Order Flow Imbalance (OFI) | L | IB TWS Top-of-Book pruefen | Offen |
-| ODIN-070 | LLM Confidence Calibration | M | 100+ Backtests mit EventLog | Offen |
-| ODIN-071 | Post-Trade Counterfactual Analysis | M | Keine | Offen |
-| ODIN-072 | Chain-of-Thought Forcing | S | Keine | Offen |
-| ODIN-073 | Pre-Trade Hard Controls | M | Keine | Offen |
-| ODIN-083 | Prompt Caching (Agent SDK) | S | Agent-SDK-Machbarkeitspruefung | Offen (bedingt) |
+| ODIN-068 | HMM Regime Detection | L | Keine | Done |
+| ODIN-069 | Order Flow Imbalance (OFI) | L | IB TWS Top-of-Book pruefen | Done |
+| ODIN-070 | LLM Confidence Calibration | M | 100+ Backtests mit EventLog | Done |
+| ODIN-071 | Post-Trade Counterfactual Analysis | M | Keine | Done |
+| ODIN-072 | Chain-of-Thought Forcing | S | Keine | Done |
+| ODIN-073 | Pre-Trade Hard Controls | M | Keine | Done |
+| ODIN-083 | Prompt Caching (Agent SDK) | S | Agent-SDK-Machbarkeitspruefung | Done |
 
 ### P2 — Verfeinerung
 
 | ID | Titel | Umfang | Abhaengigkeiten | Status |
 |----|-------|--------|-----------------|--------|
-| ODIN-074 | Regime-Dependent Arbiter Weighting | M | ODIN-071 | Offen |
-| ODIN-075 | Volume Profile (VPOC/VAH/VAL) | M | Keine | Offen |
-| ODIN-076 | Correlation Check Multi-Instrument | S | Keine | Offen |
-| ODIN-077 | Graded Fallback Hierarchy | S | Keine | Offen |
-| ODIN-078 | Explicit Multi-Timeframe Labeling | S | Keine | Offen |
-| ODIN-079 | ATR Period Intraday Optimization | S | Keine | Offen |
-| ODIN-080 | Execution Policy Layer | L | ODIN-067 | Offen |
+| ODIN-074 | Regime-Dependent Arbiter Weighting | M | ODIN-071 | Done |
+| ODIN-075 | Volume Profile (VPOC/VAH/VAL) | M | Keine | Done |
+| ODIN-076 | Correlation Check Multi-Instrument | S | Keine | Done |
+| ODIN-077 | Graded Fallback Hierarchy | S | Keine | Done |
+| ODIN-078 | Explicit Multi-Timeframe Labeling | S | Keine | Done |
+| ODIN-079 | ATR Period Intraday Optimization | S | Keine | Done |
+| ODIN-080 | Execution Policy Layer | L | ODIN-067 | Done |
 
 ### P3 — Langfristig (aufgesplittet in Sub-Stories)
 
 | ID | Titel | Umfang | Abhaengigkeiten | Status |
 |----|-------|--------|-----------------|--------|
 | ODIN-081 | ~~VPIN~~ (aufgesplittet) | ~~XL~~ | — | Aufgesplittet |
-| ODIN-081a | VPIN Volume Bucketizer | M | Keine | Offen |
-| ODIN-081b | VPIN Calculator | M | ODIN-081a | Offen |
-| ODIN-081c | VPIN Gate Integration | S | ODIN-081b | Offen |
+| ODIN-081a | VPIN Volume Bucketizer | M | Keine | Done |
+| ODIN-081b | VPIN Calculator | M | ODIN-081a | Done |
+| ODIN-081c | VPIN Gate Integration | S | ODIN-081b | Done |
 | ODIN-082 | ~~Adaptive Weighting Bandit~~ (aufgesplittet) | ~~XL~~ | — | Aufgesplittet |
-| ODIN-082a | Bandit Core Algorithm | M | ODIN-071, ODIN-074 | Offen |
-| ODIN-082b | Bandit Arbiter Integration | M | ODIN-082a | Offen |
-| ODIN-082c | Bandit Persistence + Reward | M | ODIN-082b, ODIN-071 | Offen |
+| ODIN-082a | Bandit Core Algorithm | M | ODIN-071, ODIN-074 | Done |
+| ODIN-082b | Bandit Arbiter Integration | M | ODIN-082a | Done |
+| ODIN-082c | Bandit Persistence + Reward | M | ODIN-082b, ODIN-071 | Done |
 
 ### Abhaengigkeitsgraph
 
