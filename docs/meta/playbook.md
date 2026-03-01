@@ -212,7 +212,55 @@ Kein Deliverable ohne Beweis. "Sieht korrekt aus" ist KEINE Verifikation.
 | Build | `BUILD SUCCESS`, Test-Counts sichtbar |
 | Tests | Anzahl UT + IT, alle GREEN |
 | Commit | Commit-Hash, aussagekraeftige Message |
-| Review | ChatGPT-Sparring und Gemini-Review im Protokoll dokumentiert |
+| Review | `chatgpt_call` und `gemini_call` Events in Telemetrie-Datei (`_temp/story-telemetry/<STORY-ID>.jsonl`). Protokoll-Behauptungen ALLEIN sind KEIN Beweis — nur Telemetrie-Events zaehlen. |
+
+### 3.7 ChatGPT/Gemini-Enforcement (HARD GATE)
+
+**Hintergrund:** Empirisch bestaetigt (ODIN-089, ODIN-090): Worker-Agents behaupten im Protokoll, ChatGPT-Sparring und Gemini-Reviews durchgefuehrt zu haben, ohne die Tools tatsaechlich aufzurufen. Dies ist ein systematisches Halluzinationsproblem.
+
+**Regel:** ChatGPT-Sparring (DoD 5.5) und Gemini-Review (DoD 5.6) sind **Hard Gates**. Sie werden auf drei Ebenen durchgesetzt:
+
+#### Ebene 1: Worker-Agent (Ausfuehrung)
+
+Der Worker MUSS die Skills `chatgpt-pool-review` und `gemini-pool-review` verwenden. Diese Skills nutzen die MCP-Pool-Tools (`mcp__chatgpt-pool__chatgpt_acquire/send/release` bzw. `mcp__gemini-pool__gemini_acquire/send/release`), welche vom Telemetrie-Hook automatisch protokolliert werden.
+
+**VERBOTEN:**
+- ChatGPT/Gemini-Ergebnisse erfinden oder aus eigenem Wissen generieren
+- Protokoll-Abschnitte fuer ChatGPT/Gemini ausfuellen OHNE tatsaechlichen Skill-/Tool-Aufruf
+- Schritte 5.5/5.6 als "nicht zutreffend" markieren (sie sind IMMER zutreffend)
+
+**PFLICHT im Worker-Prompt (woertlich):**
+```
+Du MUSST fuer DoD 5.5 den Skill `chatgpt-pool-review` aufrufen.
+Du MUSST fuer DoD 5.6 den Skill `gemini-pool-review` aufrufen (3x: Code, Konzepttreue, Praxis).
+Diese Aufrufe werden automatisch in der Telemetrie protokolliert.
+Wenn du behauptest, Reviews gemacht zu haben, OHNE die Skills aufzurufen, wird das vom QS-Agent erkannt und fuehrt zu FAIL.
+```
+
+#### Ebene 2: QS-Agent (Verifikation)
+
+Der QS-Agent MUSS die Telemetrie-Datei pruefen:
+
+```bash
+# Telemetrie-Datei lesen
+cat _temp/story-telemetry/<STORY-ID>.jsonl
+
+# ChatGPT-Calls zaehlen (MUSS >= 1 sein)
+grep -c '"chatgpt_call"' _temp/story-telemetry/<STORY-ID>.jsonl
+
+# Gemini-Calls zaehlen (MUSS >= 1 sein)
+grep -c '"gemini_call"' _temp/story-telemetry/<STORY-ID>.jsonl
+```
+
+**Wenn chatgpt_call = 0 oder gemini_call = 0 → automatisch FAIL**, unabhaengig von allen anderen Kriterien. Protokoll-Behauptungen ohne Telemetrie-Nachweis sind wertlos.
+
+#### Ebene 3: Orchestrator (Absicherung)
+
+Der Orchestrator prueft VOR dem Story-Abschluss die Telemetrie-Datei:
+
+- `chatgpt_call` Events > 0? Falls nein: Story NICHT abschliessen, Remediation starten
+- `gemini_call` Events > 0? Falls nein: Story NICHT abschliessen, Remediation starten
+- Erst wenn Telemetrie UND QS-PASS vorliegen, darf der Story-Abschluss erfolgen
 
 ---
 
@@ -232,6 +280,7 @@ Jeder Worker-Prompt MUSS enthalten:
 | 6 | QA-Report | Bei Remediation: Pfad zur `qa-report-r<N>.md` der Vorrunde |
 | 7 | Rundennummer | Explizit angeben (fuer QS-Agent-Dateinamen) |
 | 8 | Ausfuehrungsanweisung | "Lies die User-Story-Spezifikation und befolge ALLE DoD-Punkte 5.1 bis 5.7. Ueberspringe KEINEN Schritt. Bei Blockern: abbrechen und Fehler melden." |
+| 9 | ChatGPT/Gemini-Enforcement | Woertlich im Prompt: "Du MUSST fuer DoD 5.5 den Skill `chatgpt-pool-review` aufrufen. Du MUSST fuer DoD 5.6 den Skill `gemini-pool-review` aufrufen (3x: Code, Konzepttreue, Praxis). Diese Aufrufe werden automatisch in der Telemetrie protokolliert. Wenn du behauptest, Reviews gemacht zu haben, OHNE die Skills aufzurufen, wird das vom QS-Agent erkannt und fuehrt zu FAIL." |
 
 ### 4.2 QS-Agent
 
@@ -244,6 +293,7 @@ Jeder QS-Prompt MUSS enthalten:
 | 3 | CLAUDE.md | `T:\codebase\its_odin\CLAUDE.md` |
 | 4 | Rundennummer | N (bestimmt Dateiname: `qa-report-r<N>.md`) |
 | 5 | Pruefauftrag | "Pruefe ALLE DoD-Kriterien aus Abschnitt 5.1-5.7 gegen den tatsaechlichen Code und die Protokolldatei. Schreibe Findings in den Wiki-Story-Ordner: `docs/meta/userstories/<STORY-ORDNER>/qa-report-r<N>.md`. Melde PASS oder FAIL." |
+| 6 | Telemetrie-Pruefung | "Pruefe die Telemetrie-Datei `_temp/story-telemetry/<STORY-ID>.jsonl`: MUSS mindestens 1 `chatgpt_call` UND mindestens 1 `gemini_call` Event enthalten. Falls eines fehlt → automatisch FAIL, unabhaengig von allen anderen Kriterien. Protokoll-Behauptungen ohne Telemetrie-Nachweis sind wertlos." |
 
 ### 4.3 Pflichtregeln im Prompt
 
@@ -254,6 +304,7 @@ Folgende Regeln muessen in JEDEM Agent-Prompt explizit stehen (werden bei Contex
 - **Backend-Start:** Nur aus Hauptagent-Kontext mit `run_in_background`
 - **Temp-Dateien:** Nach Verwendung sofort loeschen, niemals committen
 - **QA-Reports:** Gehoeren in den Wiki-Story-Ordner (persistent), NICHT in `temp/` (fluechtig)
+- **ChatGPT/Gemini-Reviews:** MUESSEN ueber die Skills `chatgpt-pool-review` und `gemini-pool-review` erfolgen. Kein Erfinden von Review-Ergebnissen. Telemetrie-Hook protokolliert automatisch — fehlende Events = automatisch FAIL.
 
 ---
 
@@ -306,6 +357,8 @@ Nach QS-Abschluss:
 Nach PASS — Story-Abschluss (NUR Orchestrator, NICHT delegieren):
 
 - [ ] Per-Story Telemetrie-Datei lesen: `cat _temp/story-telemetry/<STORY-ID>.jsonl`
+- [ ] **HARD GATE: `chatgpt_call` Events > 0?** Falls NEIN → Story NICHT abschliessen, Remediation starten
+- [ ] **HARD GATE: `gemini_call` Events > 0?** Falls NEIN → Story NICHT abschliessen, Remediation starten
 - [ ] Processing Time berechnen (Summe agent_start/agent_end Differenzen, in Minuten)
 - [ ] ChatGPT Calls zaehlen (`chatgpt_call` Events)
 - [ ] Gemini Calls zaehlen (`gemini_call` Events)
