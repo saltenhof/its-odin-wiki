@@ -224,17 +224,32 @@ Kein Deliverable ohne Beweis. "Sieht korrekt aus" ist KEINE Verifikation.
 
 Der Worker MUSS die Skills `chatgpt-pool-review` und `gemini-pool-review` verwenden. Diese Skills nutzen die MCP-Pool-Tools (`mcp__chatgpt-pool__chatgpt_acquire/send/release` bzw. `mcp__gemini-pool__gemini_acquire/send/release`), welche vom Telemetrie-Hook automatisch protokolliert werden.
 
+**Owner-Naming-Konvention (PFLICHT):**
+
+Der Telemetrie-Hook extrahiert die Story-ID aus dem `owner`-Feld des Pool-Acquires. Nur wenn die Story-ID im Owner enthalten ist, wird der Call in der Per-Story Telemetrie-Datei protokolliert. **Ein Acquire ohne Story-ID im Owner wird vom Hook ignoriert — der Call existiert fuer die Telemetrie nicht.**
+
+| Agent-Rolle | Owner-Muster | Beispiel |
+|-------------|-------------|----------|
+| Worker | `<STORY-ID>-worker` | `ODIN-042-worker` |
+| QA Runde N | `<STORY-ID>-qa-r<N>` | `ODIN-042-qa-r1` |
+| Rework | `<STORY-ID>-rework` | `ODIN-042-rework` |
+
+**Konsequenz bei fehlendem Story-Praefix:** Der QS-Agent prueft die Telemetrie-Datei. Wenn dort 0 `chatgpt_call` oder 0 `gemini_call` Events stehen (weil der Hook die Calls mangels Story-ID nicht erfasst hat), wird die Story automatisch als FAIL bewertet — unabhaengig davon, ob das Review tatsaechlich stattfand. Die Telemetrie ist der einzige akzeptierte Nachweis.
+
+**Ausnahme:** Research-Agents und Ad-hoc-Queries, die NICHT im Story-Kontext laufen, sind von dieser Regel nicht betroffen. Sie werden nicht gegen Story-Telemetrie gemessen und koennen beliebige Owner-Namen verwenden.
+
 **VERBOTEN:**
 - ChatGPT/Gemini-Ergebnisse erfinden oder aus eigenem Wissen generieren
 - Protokoll-Abschnitte fuer ChatGPT/Gemini ausfuellen OHNE tatsaechlichen Skill-/Tool-Aufruf
 - Schritte 5.5/5.6 als "nicht zutreffend" markieren (sie sind IMMER zutreffend)
+- Pool-Acquires OHNE Story-ID im Owner-Feld (wird nicht protokolliert → FAIL)
 
 **PFLICHT im Worker-Prompt (woertlich):**
 ```
 Du MUSST fuer DoD 5.5 den Skill `chatgpt-pool-review` aufrufen.
 Du MUSST fuer DoD 5.6 den Skill `gemini-pool-review` aufrufen (3x: Code, Konzepttreue, Praxis).
-Diese Aufrufe werden automatisch in der Telemetrie protokolliert.
-Wenn du behauptest, Reviews gemacht zu haben, OHNE die Skills aufzurufen, wird das vom QS-Agent erkannt und fuehrt zu FAIL.
+Bei jedem Pool-Acquire MUSST du die Story-ID im Owner-Feld mitgeben (z.B. owner="ODIN-042-worker").
+Ohne Story-ID im Owner wird der Call nicht in der Telemetrie erfasst und fuehrt bei der QS zu FAIL.
 ```
 
 #### Ebene 2: QS-Agent (Verifikation)
@@ -280,7 +295,7 @@ Jeder Worker-Prompt MUSS enthalten:
 | 6 | QA-Report | Bei Remediation: Pfad zur `qa-report-r<N>.md` der Vorrunde |
 | 7 | Rundennummer | Explizit angeben (fuer QS-Agent-Dateinamen) |
 | 8 | Ausfuehrungsanweisung | "Lies die User-Story-Spezifikation und befolge ALLE DoD-Punkte 5.1 bis 5.7. Ueberspringe KEINEN Schritt. Bei Blockern: abbrechen und Fehler melden." |
-| 9 | ChatGPT/Gemini-Enforcement | Woertlich im Prompt: "Du MUSST fuer DoD 5.5 den Skill `chatgpt-pool-review` aufrufen. Du MUSST fuer DoD 5.6 den Skill `gemini-pool-review` aufrufen (3x: Code, Konzepttreue, Praxis). Diese Aufrufe werden automatisch in der Telemetrie protokolliert. Wenn du behauptest, Reviews gemacht zu haben, OHNE die Skills aufzurufen, wird das vom QS-Agent erkannt und fuehrt zu FAIL." |
+| 9 | ChatGPT/Gemini-Enforcement | Woertlich im Prompt: "Du MUSST fuer DoD 5.5 den Skill `chatgpt-pool-review` aufrufen. Du MUSST fuer DoD 5.6 den Skill `gemini-pool-review` aufrufen (3x: Code, Konzepttreue, Praxis). Bei jedem Pool-Acquire MUSST du die Story-ID im Owner-Feld mitgeben (z.B. owner='ODIN-042-worker'). Ohne Story-ID im Owner wird der Call nicht in der Telemetrie erfasst und fuehrt bei der QS zu FAIL." |
 
 ### 4.2 QS-Agent
 
@@ -305,6 +320,7 @@ Folgende Regeln muessen in JEDEM Agent-Prompt explizit stehen (werden bei Contex
 - **Temp-Dateien:** Nach Verwendung sofort loeschen, niemals committen
 - **QA-Reports:** Gehoeren in den Wiki-Story-Ordner (persistent), NICHT in `temp/` (fluechtig)
 - **ChatGPT/Gemini-Reviews:** MUESSEN ueber die Skills `chatgpt-pool-review` und `gemini-pool-review` erfolgen. Kein Erfinden von Review-Ergebnissen. Telemetrie-Hook protokolliert automatisch — fehlende Events = automatisch FAIL.
+- **Pool-Acquire Owner:** MUSS die Story-ID enthalten (z.B. `ODIN-042-worker`). Ohne Story-ID wird der Call nicht in der Telemetrie erfasst → QS-FAIL.
 
 ---
 
