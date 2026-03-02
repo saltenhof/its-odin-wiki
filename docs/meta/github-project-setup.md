@@ -126,7 +126,7 @@ Jedes Issue hat einen standardisierten Body mit diesen Pflichtabschnitten:
 
 ```
 _concept/_userstories/
-├── playbook.md                              ← Prozess-Definition
+├── userstory-playbook.md                     ← Prozess-Definition
 ├── user-story-specification.md              ← Story-Struktur, DoD
 ├── github-project-setup.md                  ← DIESES Dokument
 └── <PRAEFIX>-<NR>_<short-title>/           ← Pro Story ein Verzeichnis
@@ -619,7 +619,7 @@ rm <PFAD>/_temp_fields.graphql
 8. [ ] IDs in die Projekt-Dokumentation eintragen (analog Abschnitt 3)
 9. [ ] Verzeichnisstruktur im Repo anlegen:
        _concept/_userstories/
-       ├── playbook.md
+       ├── userstory-playbook.md
        ├── user-story-specification.md
        └── github-project-setup.md
 10. [ ] Startskript mit UTF-8-Encoding-Variablen anpassen (Abschnitt 4.1)

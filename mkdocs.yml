@@ -100,7 +100,7 @@ nav:
     - Requirements:
       - Web Application: frontend/requirements/web-application-requirements.md
   - Meta:
-    - Playbook: meta/playbook.md
+    - Playbook: meta/userstory-playbook.md
     - Working State: meta/working-state.md
     - Concept Changelog: meta/concept-changelog.md
     - User-Story-Spezifikation: meta/user-story-specification.md

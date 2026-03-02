@@ -6,7 +6,7 @@
 
 | Dokument | Pfad | Inhalt |
 |----------|------|--------|
-| Playbook | `docs/meta/playbook.md` | Execution-Zyklus, Rollen, Orchestrator-Checklisten |
+| Playbook | `docs/meta/userstory-playbook.md` | Execution-Zyklus, Rollen, Orchestrator-Checklisten |
 | CLAUDE.md | `T:\codebase\its_odin\CLAUDE.md` | Coding-Regeln, Architektur, Guardrails |
 | GitHub Project Setup | `docs/meta/github-project-setup.md` | Projekt-IDs, Field-IDs, CLI-Referenz |
 
@@ -239,7 +239,7 @@ Waehrend der Implementierung werden Arbeitsdokumente im Repo angelegt. Diese Dat
 ```
 its-odin-wiki/docs/meta/userstories/
   ├── INDEX.md                                 ← Uebersicht aller Stories
-  ├── playbook.md                              ← Prozess-Definition (→ docs/meta/playbook.md)
+  ├── userstory-playbook.md                     ← Prozess-Definition (→ docs/meta/userstory-playbook.md)
   ├── user-story-specification.md              ← Story-Spezifikation (dieses Dokument)
   └── ODIN-<NR>_<short-title>/                ← Pro Story ein Verzeichnis
         ├── story.md                           ← Story-Definition (Markdown-Kopie des Issues)

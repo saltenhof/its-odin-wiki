@@ -14,7 +14,7 @@ Vollautomatischer Intraday-Trading-Agent fuer Aktien (US, Europa). Kombiniert LL
 | [Architektur](architecture/index.md) | Systemuebersicht (Kap 0) — uebergreifend |
 | [Backend](backend/index.md) | Architektur (Kap 1–8, 10), Guardrails |
 | [Frontend](frontend/index.md) | Architektur (Kap 9), Guardrails, Requirements |
-| [Meta](meta/playbook.md) | Playbook, Working State, Konzept-Changelog |
+| [Meta](meta/userstory-playbook.md) | Playbook, Working State, Konzept-Changelog |
 
 ## Tech-Stack
 
