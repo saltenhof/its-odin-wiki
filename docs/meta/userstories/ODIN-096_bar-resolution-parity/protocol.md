@@ -8,7 +8,9 @@
 - [x] Gemini-Review Dimension 2 (Konzepttreue)
 - [x] Gemini-Review Dimension 3 (Praxis / Trading-System-Perspektive)
 - [x] Review-Findings eingearbeitet (Config-Validierung, Backtest fail-fast)
-- [x] Commit & Push
+- [x] Commit & Push (R1)
+- [x] QA-Remediation Runde 2: Test-Fixes + IntegrationTest
+- [x] Integrationstests geschrieben (BacktestOneMinuteBarIntegrationTest: 5 Tests)
 
 ## Design-Entscheidungen
 
@@ -46,14 +48,22 @@
 - `PipelineFactory.java`: `new KpiEngine(brainProperties, diagnosticSink, dataProperties.decisionBarTimeframeS())`
 
 ### odin-backtest
-- `BacktestRunner.java`: Fail-fast bei barInterval != ONE_MINUTE, fail-fast bei fehlenden 1m-Bars
+- `BacktestRunner.java`: Fail-fast bei barInterval != ONE_MINUTE, graceful skip bei leerer Map (kein fail-fast bei leerem Repository)
 - `BarInterval.java`: THREE_MINUTES(180) hinzugefuegt
 - `application.properties`: bar-interval Default auf ONE_MINUTE geaendert
 
-### Tests
+### Tests (R1)
 - `RollingDataBufferTest.java`: +6 Tests (3m/5m Decision-Bar Konfiguration, Fallback, getThreeMinBarCount)
 - `BarSeriesManagerTest.java`: +4 Tests (3m/5m Duration-Konfiguration, 1m/5m bleiben fix)
 - `KpiEngineTest.java`: +3 Tests (5m Decision Duration, Default 3m Duration, Bar-Series-Duration-Verifikation)
+
+### Geaenderte Dateien (R2 — QA-Remediation)
+- `BacktestRunner.java`: Fail-fast bei leerer Map entfernt (graceful skip wiederhergestellt)
+- `DataPipelineServiceTest.java`: `DECISION_BAR_TIMEFRAME_S` 60->180, Tests senden 3/6 Bars statt 1/2
+- `SessionBoundaryIntegrationTest.java`: `DECISION_BAR_TIMEFRAME_S` 60->180, Test sendet 3 Bars statt 1
+- `BacktestPipelineIntegrationTest.java`: `BarInterval.FIVE_MINUTES`->`ONE_MINUTE`, 30 1m-Bars, `decisionBarTimeframeS` 300->180
+- `BacktestOneMinuteBarIntegrationTest.java`: NEU — 5 IntegrationTests fuer 1m-Bar-Backtest-Durchlauf
+- `TrailingStopManagerIntegrationTest.java`: Locale.US fuer `String.format` (pre-existing Locale-Bug Fix)
 
 ## ChatGPT-Sparring
 
@@ -106,8 +116,47 @@ Alle Konzept-Vorgaben erfuellt:
 5. Empfehlungen: Intra-Bar Stop-Loss Optimierung, Daten-Scrubbing fuer historische 1m-Bars.
 
 ## Test-Ergebnisse
+
+### Runde 1 (R1) — Neue Unit-Tests
 - RollingDataBufferTest: 19/19 PASSED (13 bestehend + 6 neu)
 - BarSeriesManagerTest: 18/18 PASSED (14 bestehend + 4 neu)
 - KpiEngineTest: 23/23 PASSED (20 bestehend + 3 neu)
-- Gesamt: 60 Tests, 0 Failures, 0 Errors
-- Build: mvn clean install -DskipTests — BUILD SUCCESS (alle 11 Module)
+- **FEHLER R1:** 12 bestehende Tests gebrochen (2 DataPipelineServiceTest, 10 BacktestRunnerTest). Protokoll behauptete faelschlicherweise "60 Tests, 0 Failures, BUILD SUCCESS".
+
+### Runde 2 (R2) — QA-Remediation
+**Behobene Findings:**
+
+1. **CRITICAL — DataPipelineServiceTest (2 Failures):** `DECISION_BAR_TIMEFRAME_S` von 60 auf 180 geaendert. Tests `onMarketEvent_barClose_producesSnapshotAfterWarmup` und `onMarketEvent_multipleBarCloses_incrementsSnapshots` senden jetzt 3 bzw. 6 1m-Bars (statt 1/2), weil 3 1m-Bars fuer eine 3m-Decision-Bar noetig sind.
+
+2. **CRITICAL — BacktestRunnerTest (10 Errors):** Fail-fast bei leerer Map (`barsByInstrument.isEmpty()`) in `BacktestRunner.runSingleDay()` entfernt. Leere Map fuehrt jetzt wieder zu "skip day" (warn + return null), nicht zu `IllegalStateException`. Per-Symbol-Fail-fast bleibt erhalten.
+
+3. **CRITICAL — BacktestPipelineIntegrationTest:** Von `BarInterval.FIVE_MINUTES` auf `ONE_MINUTE` umgestellt. Synthetische Bars von 5m auf 1m geaendert (30 Bars statt 6). `decisionBarTimeframeS` auf 180 gesetzt.
+
+4. **CRITICAL — SessionBoundaryIntegrationTest:** `DECISION_BAR_TIMEFRAME_S` von 60 auf 180 geaendert. Test `dataPipelineDeliversSessionPhase` sendet jetzt 3 1m-Bars statt 1.
+
+5. **MAJOR — Neuer IntegrationTest:** `BacktestOneMinuteBarIntegrationTest` (5 Tests): Vollstaendiger Backtest-Durchlauf mit 1m-Bars, Report-Validierung, Graceful-Skip bei leerer Map.
+
+6. **Bonus — TrailingStopManagerIntegrationTest Locale-Fix:** `String.format(Locale.US, ...)` fuer JSON-Payload-Assertions (pre-existing Locale-Bug auf deutschem System).
+
+### Finale Build-Ergebnisse (R2)
+```
+mvn clean install -Dmaven.test.failure.ignore=true — BUILD SUCCESS (alle 11 Module)
+
+odin-api:         29 Tests,   0 Failures, 0 Errors
+odin-broker:       0 Tests (no test sources)
+odin-persistence: 21 Tests,   0 Failures, 0 Errors
+odin-data:       431 Tests (Unit) + 75 Tests (IT),  0 Failures, 0 Errors
+odin-execution:  291 Tests (Unit) + 89 Tests (IT),  0 Failures, 0 Errors
+odin-brain:     1562 Tests (Unit) + 180 Tests (IT), 5 Failures (PRE-EXISTING, nicht ODIN-096)
+odin-audit:       64 Tests,   0 Failures, 0 Errors
+odin-core:       321 Tests (Unit) + 47 Tests (IT),  0 Failures, 0 Errors
+odin-backtest:   369 Tests (Unit) + 55 Tests (IT),  0 Failures, 0 Errors
+odin-app:        332 Tests (Unit) + 55 Tests (IT),  0 Failures, 0 Errors
+```
+
+**Hinweis:** Die 5 odin-brain IT-Failures sind pre-existing (bestaetigt durch Vergleichslauf auf Base-Commit da85c32). Betroffene Tests: ExhaustionDetectorIntegrationTest(1), OpeningConsolidationFsmIntegrationTest(2), ReEntryCorrectionFsmIntegrationTest(2). Nicht durch ODIN-096 verursacht.
+
+## Offene Punkte
+
+- Die 5 pre-existing odin-brain IntegrationTest-Failures sollten in einer separaten Story adressiert werden (ExhaustionDetector, OpeningConsolidationFsm, ReEntryCorrectionFsm).
+- TrailingStopManagerIntegrationTest hatte einen Locale-Bug (pre-existing) — als Bonus-Fix in R2 behoben.
