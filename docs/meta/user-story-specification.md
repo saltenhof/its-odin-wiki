@@ -22,7 +22,7 @@ ODIN verwendet einen **Hybrid-Ansatz**: GitHub Issues und GitHub Project fuer Pl
 |-------|----------|---------------|
 | **Planung & Tracking** | GitHub Project "ODIN" (`users/saltenhof/projects/2`) | Status, Priorisierung, Custom Fields, Gesamtueberblick |
 | **Story-Definition** | GitHub Issue (im jeweiligen Repo) | Pflichtfelder, Akzeptanzkriterien, DoD-Checkliste, Diskussion |
-| **Arbeitsdokumente** | `_concept/_userstories/ODIN-<NR>_<title>/` im Repo | `protocol.md`, `qa-report-r<N>.md` |
+| **Arbeitsdokumente** | `docs/meta/userstories/ODIN-<NR>_<title>/` im Wiki-Repo | `protocol.md`, `qa-report-r<N>.md` |
 
 ### 1.2 Verknuepfte Repos
 
@@ -237,10 +237,12 @@ Waehrend der Implementierung werden Arbeitsdokumente im Repo angelegt. Diese Dat
 ### 3.1 Verzeichniskonvention
 
 ```
-_concept/_userstories/
-  ├── playbook.md                              ← Prozess-Definition
+its-odin-wiki/docs/meta/userstories/
+  ├── INDEX.md                                 ← Uebersicht aller Stories
+  ├── playbook.md                              ← Prozess-Definition (→ docs/meta/playbook.md)
   ├── user-story-specification.md              ← Story-Spezifikation (dieses Dokument)
   └── ODIN-<NR>_<short-title>/                ← Pro Story ein Verzeichnis
+        ├── story.md                           ← Story-Definition (Markdown-Kopie des Issues)
         ├── protocol.md                        ← Worker schreibt live
         ├── qa-report-r1.md                    ← QS-Agent Runde 1
         ├── qa-report-r2.md                    ← QS-Agent Runde 2 (falls noetig)
@@ -250,6 +252,7 @@ _concept/_userstories/
 - **NR:** GitHub Issue Nummer (z.B. `ODIN-42`)
 - **Short-Title:** Kebab-case, sprechend (z.B. `brain-gate-cascade`, `api-subregime-model`)
 - Das Verzeichnis wird vom **Worker-Agent** bei Arbeitsbeginn angelegt
+- **Ablageort:** Alle Arbeitsdokumente liegen im **Wiki-Repo** (`its-odin-wiki`), NICHT im Backend-Repo unter `_concept/`
 
 ### 3.2 Protokolldatei (`protocol.md`)
 
