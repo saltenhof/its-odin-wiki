@@ -273,11 +273,12 @@ graph TB
 
     UPS --> SSE
     UBS --> SSE
-    UCLU --> SSE
-
     UPS --> GS
     UBS --> GS
 ```
+
+> **Designregel SSE-Ownership (Multi-LLM-Review, Finding #1):**
+> Genau EIN SSE-Client pro Stream pro View. Der Domain-Hook (`usePipelineStream` bzw. `useBacktestStream`) besitzt die SSE-Verbindung exklusiv. `useChartLiveUpdates` erstellt KEINEN eigenen SSE-Client — er ist SSE-agnostisch und empfaengt typisierte Chart-Events ueber Callbacks vom Domain-Hook. Dadurch werden Duplikat-Subscriptions ausgeschlossen. Im Mermaid-Diagramm oben gibt es bewusst keine Kante `UCLU --> SSE`.
 
 ### 3.2 Neue Komponenten
 
@@ -311,7 +312,7 @@ graph TB
 interface DecisionFeedProps {
   /** Events to display. Ordered newest-first. */
   readonly events: ReadonlyArray<DecisionFeedEvent>;
-  /** Currently active category filter. */
+  /** Currently active category filter (single-select tab). */
   readonly activeFilter: DecisionCategory | 'all';
   /** Callback when filter changes. */
   readonly onFilterChange: (filter: DecisionCategory | 'all') => void;
@@ -372,7 +373,7 @@ domains/trading-operations/ ---imports--→ shared/components/IntraDayChart/
 
 **DecisionFeed** liegt in `shared/components/` weil sowohl `BacktestLiveView` als auch `LiveTradingView` es verwenden. Die Datenprovisionierung (welche Events im Feed landen) obliegt dem jeweiligen Domain-Hook (`useBacktestStream` bzw. `usePipelineStream`). Der Feed selbst ist eine reine Darstellungskomponente.
 
-**Shared-Hooks als Kommunikationskanal:** `useChartLiveUpdates` ist der zentrale Bridge-Hook zwischen SSE-Events und dem Chart. Er wird innerhalb von `IntraDayChart` aufgerufen und empfaengt Events ueber eine Callback-Prop, die der jeweilige Domain-Container (`BacktestLiveView` oder `LiveTradingView`) verdrahtet.
+**Shared-Hooks als Kommunikationskanal:** `useChartLiveUpdates` ist der zentrale Bridge-Hook zwischen SSE-Events und dem Chart. Er wird innerhalb von `IntraDayChart` aufgerufen und empfaengt Events ueber eine Callback-Prop, die der jeweilige Domain-Container (`BacktestLiveView` oder `LiveTradingView`) verdrahtet. Entscheidend: `useChartLiveUpdates` hat KEINE Abhaengigkeit auf `SseClient` oder SSE-Event-Types — er arbeitet ausschliesslich mit typisierten `ChartUpdate`-Objekten. Die SSE-Entkopplung liegt in der Verantwortung der Domain-Hooks.
 
 ---
 
@@ -427,7 +428,7 @@ flowchart LR
 | Store | Verantwortung | Neue Felder |
 |-------|---------------|-------------|
 | `globalStore` (bestehend) | connectionStatus, killSwitch, systemHealth | Keine Aenderung |
-| `tradingStore` (bestehend) | pipelineSnapshots, trades, livePositionDetails | `decisionEvents: DecisionFeedEvent[]` (neu, max 500) |
+| `tradingStore` (bestehend) | pipelineSnapshots, trades, livePositionDetails | `decisionEvents: DecisionFeedEvent[]` (neu, max 1.000 — vereinheitlicht mit DecisionFeed, siehe §4.5) |
 | `backtestLiveStore` (NEU) | Backtest-spezifischer Live-State | Siehe unten |
 
 #### Neuer Store: backtestLiveStore
@@ -526,7 +527,21 @@ export interface UseChartDataResult {
 
 ### 4.5 Memory-Windowing-Strategie
 
-Wie in Concept 11, Abschnitt 10.5 gefordert, MUSS das Frontend Memory Windowing implementieren:
+Wie in Concept 11, Abschnitt 10.5 gefordert, MUSS das Frontend Memory Windowing implementieren.
+
+> **Einheitliches Memory-Limit (Multi-LLM-Review, Finding #9):** DecisionFeed-Events und tradingStore.decisionEvents verwenden dasselbe Limit: **1.000 Events**. Dieses Limit ist als zentrale Konfigurationskonstante definiert:
+>
+> ```typescript
+> // src/shared/config/memoryLimits.ts
+> export const MEMORY_LIMITS = {
+>   DECISION_EVENTS_MAX: 1_000,
+>   CHART_BARS_MAX: 10_000,
+>   DAY_SUMMARIES_MAX: 500,
+>   TRADE_EVENTS_MAX: 5_000,
+> } as const;
+> ```
+>
+> Sowohl `backtestLiveStore.decisionEvents` als auch `tradingStore.decisionEvents` (vorher max 500 in 4.2) verwenden `MEMORY_LIMITS.DECISION_EVENTS_MAX`. Ein einziger Wert, eine einzige Quelle.
 
 | Datentyp | Max. Elemente | Eviction-Policy | Begruendung |
 |----------|---------------|-----------------|-------------|
@@ -601,6 +616,9 @@ Overlay-Serien (EMA, VWAP, Bollinger, etc.) werden parallel zu den Bars aktualis
 
 **Wichtig:** Indikator-Updates verwenden denselben `time`-Wert wie der zugehoerige Bar. Bei aktivem (nicht abgeschlossenem) Bar im Live-Trading werden Indikatoren NICHT aktualisiert — sie sind nur fuer abgeschlossene Bars definiert. Im Backtest-Stream sind Indikatoren per Definition an abgeschlossene Bars gebunden.
 
+> **Designentscheidung: Indicator Lag auf Live-Tick ist beabsichtigt (Multi-LLM-Review, Finding #7).**
+> Waehrend des aktiven (unfertigen) Bars zeigt der Chart nur Preisbewegung (OHLCV-Update), aber KEINE Indikator-Aktualisierung. Die Indikatoren "hinken" dem aktiven Bar um bis zu 59 Sekunden hinterher. Dies ist kein Bug, sondern eine bewusste Architekturentscheidung: ODINs Decision Layer (Quant-Engine, LLM-Analyse, Gate-Cascade) operiert ausschliesslich auf abgeschlossenen Bars. Intra-Bar-Indikatorwerte waeren inkonsistent mit dem Entscheidungspfad und koennten den Operator zu falschen Schlussfolgerungen verleiten. Der aktive Bar dient ausschliesslich der Preisbeobachtung — Indikatoren werden erst nach Bar-Close aktualisiert.
+
 ### 5.4 Multi-Timeframe-Aggregation bei Live-Updates
 
 `useChartData` aggregiert 1m-Bars client-seitig auf die gewaehlte Timeframe (3m/5m/10m) via `aggregateBars()`. Bei Live-Updates muss diese Aggregation inkrementell erfolgen:
@@ -617,28 +635,64 @@ TradingView Lightweight Charts ist canvas-basiert und verarbeitet 10.000+ Datenp
 
 **Im Backtest-Zeitraffer jedoch:** Der Backend-Stream kann (nach Throttling) ~15--47 Events/Sekunde liefern (Concept 11, §3.4). Bei jedem Event mehrere `series.update()` Aufrufe (Candle + Volume + N Indikatoren) auszufuehren ist problemlos — aber der React-Render-Cycle darf nicht pro Event getriggert werden.
 
-**Loesung: requestAnimationFrame-Batching:**
+**Loesung: requestAnimationFrame-Batching mit Batch-Cap und per-Frame-Coalescing (Multi-LLM-Review, Finding #3):**
 
 ```typescript
 // In useChartLiveUpdates:
+const MAX_UPDATES_PER_FRAME = 50;
 const pendingUpdatesRef = useRef<ChartUpdate[]>([]);
+const rafScheduledRef = useRef<boolean>(false);
 
 function enqueueUpdate(update: ChartUpdate): void {
   pendingUpdatesRef.current.push(update);
 
-  if (pendingUpdatesRef.current.length === 1) {
-    requestAnimationFrame(() => {
-      const batch = pendingUpdatesRef.current;
-      pendingUpdatesRef.current = [];
-      for (const item of batch) {
-        applyChartUpdate(item); // series.update() calls
-      }
-    });
+  if (!rafScheduledRef.current) {
+    rafScheduledRef.current = true;
+    requestAnimationFrame(processBatch);
   }
+}
+
+function processBatch(): void {
+  rafScheduledRef.current = false;
+
+  // Per-Frame Coalescing: Bei mehreren Updates fuer denselben (series, time)-Schluessel
+  // nur das letzte behalten. Verhindert redundante series.update() Aufrufe.
+  const coalesced = coalesceBySeriesAndTime(pendingUpdatesRef.current);
+
+  // Batch-Cap: maximal MAX_UPDATES_PER_FRAME pro Frame verarbeiten.
+  // Falls mehr vorhanden, den Rest im naechsten Frame verarbeiten.
+  const toProcess = coalesced.slice(0, MAX_UPDATES_PER_FRAME);
+  const remaining = coalesced.slice(MAX_UPDATES_PER_FRAME);
+
+  pendingUpdatesRef.current = remaining;
+
+  for (const item of toProcess) {
+    applyChartUpdate(item); // series.update() calls
+  }
+
+  // Falls noch Updates uebrig: naechsten Frame schedulen
+  if (remaining.length > 0) {
+    rafScheduledRef.current = true;
+    requestAnimationFrame(processBatch);
+  }
+}
+
+function coalesceBySeriesAndTime(updates: ReadonlyArray<ChartUpdate>): ChartUpdate[] {
+  // Map: `${seriesId}:${time}` → letztes Update
+  const map = new Map<string, ChartUpdate>();
+  for (const update of updates) {
+    const key = `${update.seriesId}:${update.time}`;
+    map.set(key, update);
+  }
+  return Array.from(map.values());
 }
 ```
 
 Dadurch werden alle Updates innerhalb eines Animation-Frames gebuendelt und in einem einzigen Render-Pass angewendet. Bei 47 Events/Sekunde und 60 FPS ergibt das ~0.8 Events pro Frame — also fast immer einzelne Updates, aber bei Bursts korrektes Batching.
+
+**Batch-Cap-Begruendung:** Bei extremen Bursts (z.B. Backtest-Replay nach Reconnect) kann die Queue auf hunderte Updates anwachsen. Ohne Cap wuerde ein einzelner rAF-Callback den Main Thread blockieren und Jank verursachen. Mit dem Cap von 50 Updates pro Frame bleibt die Frame-Budget-Einhaltung (~16ms) gewaehrleistet. Ueberschuessige Updates werden ins naechste Frame verschoben — der Browser bleibt responsive.
+
+**Coalescing-Begruendung:** Wenn z.B. 5 Preis-Ticks fuer denselben aktiven Bar in einer Queue stehen, ist nur der letzte relevant (da `series.update()` den Bar ohnehin ueberschreibt). Per-Frame-Coalescing reduziert redundante API-Calls.
 
 ### 5.6 Trade-Marker-Live-Update
 
@@ -673,19 +727,36 @@ Der DecisionFeed zeigt folgende Event-Kategorien an:
 
 ```
 DecisionFeed
-├── DecisionFeedFilter (Kategorie-Buttons: All | LLM | Quant | Gate | Order | Alert)
-└── ScrollContainer (overflow-y: auto, chronologisch absteigend)
+├── DecisionFeedFilter (Kategorie-Tabs: All | LLM | Quant | Gate | Order | Alert)
+├── NewEventsIndicator (optional, "N new events ↓" — sichtbar wenn auto-scroll pausiert)
+└── VirtualizedList (react-window FixedSizeList, chronologisch absteigend)
     ├── DecisionFeedItem (neuestes oben)
     │   ├── Zeitstempel (HH:mm:ss)
     │   ├── Kategorie-Badge (farbcodiert)
     │   ├── Summary-Text (einzeilig)
-    │   └── [Aufklappbar] Detail-Panel
-    │       ├── Vollstaendige Daten (JSON-formatiert)
+    │   └── [Aufklappbar] Detail-Panel (lazy-rendered)
+    │       ├── Vollstaendige Daten (JSON-formatiert, lazy bei expand)
     │       ├── Reasoning (bei LLM)
     │       └── Score-Breakdown (bei Quant)
     ├── DecisionFeedItem
     └── ...
 ```
+
+**Virtualisierung (Multi-LLM-Review, Finding #5):** Der DecisionFeed nutzt `react-window` (`FixedSizeList`) auch bei moderaten Itemzahlen (1.000). Grund: Bei `full`-Detail-Level im Backtest werden Events im Sekundentakt hinzugefuegt — ohne Virtualisierung wuerde das DOM exponentiell wachsen. `FixedSizeList` rendert nur sichtbare Items + Overscan (3 Items).
+
+**Auto-Scroll-Freeze:** Standardmaessig scrollt der Feed automatisch zum neuesten Event (auto-scroll). Wenn der Operator manuell nach oben scrollt (weg vom Top), wird auto-scroll pausiert und ein `NewEventsIndicator` erscheint:
+
+```typescript
+// In DecisionFeed:
+const [autoScroll, setAutoScroll] = useState<boolean>(true);
+const [newEventCount, setNewEventCount] = useState<number>(0);
+
+// onScroll-Handler der VirtualizedList:
+// Falls scrollOffset > 0: autoScroll = false, newEventCount hochzaehlen
+// Klick auf "N new events" → scrollToItem(0), autoScroll = true, newEventCount = 0
+```
+
+**Lazy-Format Detail-Panel:** JSON-Details werden erst beim Aufklappen formatiert und per `eventId` memoized (`useMemo` / `React.memo`). Verhindert teure JSON.stringify-Aufrufe fuer nicht sichtbare Items.
 
 **Aufklappbare Detail-Ansicht:** Jedes `DecisionFeedItem` kann per Click aufgeklappt werden, um die vollstaendigen Event-Daten zu zeigen. Dies ist essentiell fuer das Debugging — der Operator sieht nicht nur "LLM: ALLOW_ENTRY", sondern auch das vollstaendige Reasoning, die ReasonCodes und die Confidence-Scores.
 
@@ -693,15 +764,46 @@ DecisionFeed
 
 | Filter | Typ | Default |
 |--------|-----|---------|
-| Kategorie | Toggle-Buttons (multi-select) | Alle aktiv |
+| Kategorie | **Single-Select-Tabs** (All / LLM / Quant / Gate / Order / Alert) | All |
 | Instrument | Dropdown (nur in Multi-Instrument-Views) | Alle |
 | Zeitraum | Automatisch (aktuelle Session) | Kein expliziter Filter |
+
+> **Design-Entscheidung (Multi-LLM-Review, Finding #5):** Kategorie-Filter als Single-Select-Tabs statt Multi-Select-Checkboxes. Begruendung: (1) Einfacheres mentales Modell fuer den Operator — ein Tab, ein Fokus. (2) Konsistent mit gaengigen Activity-Log-UIs. (3) "All" zeigt alles, einzelne Tabs filtern exklusiv. Multi-Select wuerde die Toolbar visuell ueberladen und bietet keinen nennenswerten Mehrwert — der Operator wechselt typischerweise zwischen "All" und einer einzelnen Kategorie.
 
 ### 6.4 Shared-Platzierung
 
 `DecisionFeed`, `DecisionFeedItem` und `DecisionFeedFilter` liegen in `src/shared/components/DecisionFeed/`. Dies ist zwingend, da sowohl `domains/backtesting/` als auch `domains/trading-operations/` die Komponenten importieren. Feature→Feature-Imports sind verboten (Frontend-Guardrail §2).
 
-### 6.5 Memory-Limit
+### 6.5 Chart-Feed-Linking: Click-to-Jump (Multi-LLM-Review, Finding #4)
+
+Das hoechste UX-Leverage-Feature fuer Debugging: Ein Klick auf ein `DecisionFeedItem` bewegt den Chart-Crosshair zum Zeitstempel des Events und hebt den zugehoerigen Marker/Bar hervor.
+
+**Implementierung:**
+
+```typescript
+interface DecisionFeedProps {
+  // ... bestehende Props ...
+  /** Callback wenn User auf ein Feed-Item klickt — navigiert den Chart zum Event-Timestamp. */
+  readonly onEventClick?: (event: DecisionFeedEvent) => void;
+}
+```
+
+**Ablauf:**
+
+1. User klickt auf ein `DecisionFeedItem` (z.B. "15:32 LLM ALLOW_ENTRY").
+2. `onEventClick` wird mit dem Event aufgerufen.
+3. Der Parent-Container (`LiveTradingView` / `BacktestLiveView`) leitet den Timestamp an `IntraDayChart` weiter.
+4. `IntraDayChart` ruft `chart.timeScale().scrollToPosition()` und `crosshairMove` auf, um den Zeitpunkt sichtbar zu machen.
+5. Falls ein Trade-Marker an diesem Timestamp existiert, wird er visuell hervorgehoben (z.B. Pulsation oder temporaere Vergroesserung).
+
+**Visuelles Feedback:**
+- Crosshair springt zum Event-Timestamp.
+- Der zugehoerige Bar erhaelt einen temporaeren Highlight (subtle Glow-Effekt, 2 Sekunden, CSS-Animation).
+- Falls ein Marker (`TradingEventLayer`) am Timestamp existiert, wird er temporaer vergroessert.
+
+**Technische Voraussetzung:** Die `IntraDayChart`-Komponente exponiert eine imperative Methode `scrollToTime(time: UTCTimestamp): void` per `useImperativeHandle` / Ref-Forwarding.
+
+### 6.6 Memory-Limit
 
 Der DecisionFeed haelt maximal **1.000 Events** im Speicher (Konfiguration via Konstante). Bei Ueberschreitung werden die aeltesten Events entfernt (FIFO). Der Operator sieht immer die neuesten 1.000 Events.
 
@@ -795,20 +897,40 @@ Der `SseClient` (`src/shared/api/sseClient.ts`) implementiert bereits Exponentia
 - Maximum: 60.000ms
 - Last-Event-ID wird bei Reconnect mitgesendet
 
-### 9.2 Chart-State nach Reconnect
+### 9.2 Chart-State nach Reconnect — chartEpoch-Konzept
 
-Nach einem erfolgreichen SSE-Reconnect muss der Chart-State konsistent sein:
+Um Race Conditions zwischen REST-Refresh und eingehenden SSE-Events zu verhindern, fuehrt `useChartLiveUpdates` ein **chartEpoch**-Konzept ein (Multi-LLM-Review, Finding #2):
+
+```typescript
+interface ChartEpochState {
+  /** Monoton steigender Zaehler. Inkrementiert bei: Initial-Load, Reconnect, Timeframe-Wechsel, Tageswechsel. */
+  readonly epoch: number;
+  /** true waehrend REST-Refresh laeuft. Eingehende SSE-Events werden gebuffert. */
+  readonly isRestoring: boolean;
+  /** Buffer fuer Events, die waehrend isRestoring=true eintreffen. */
+  readonly pendingBuffer: ReadonlyArray<ChartUpdate>;
+}
+```
+
+**Ablauf bei Epoch-Transition (Reconnect, Tageswechsel, Timeframe-Wechsel):**
 
 ```
-Reconnect erkannt (SSE onopen nach onerror):
+Trigger erkannt (Reconnect / Tageswechsel / Timeframe-Wechsel):
+  ├── epoch++ (neuer Epoch-Zaehler)
+  ├── isRestoring = true
+  ├── Eingehende SSE-Events → pendingBuffer (werden NICHT appliziert)
   ├── REST-Refresh: Bars + Indikatoren des aktuellen Tages neu laden
   │     GET /api/v1/charts/{symbol}/bars?tradingDate={today}&interval=ONE_MINUTE
   │     GET /api/v1/charts/{symbol}/indicators?tradingDate={today}&runId={runId}
   ├── Chart: setData() mit frischen REST-Daten (vollstaendiger Reset)
-  └── SSE-Resume: Neue Events werden wieder inkrementell appliziert
+  ├── isRestoring = false
+  ├── pendingBuffer flushen: nur Events mit timestamp > letztem REST-Bar anwenden
+  └── SSE-Resume: Neue Events werden wieder direkt inkrementell appliziert
 ```
 
-**Begruendung fuer REST-Refresh:** Waehrend der Disconnect-Phase koennen Bars verpasst worden sein. Der Ring Buffer hat eine begrenzte Kapazitaet (500 Events Live, 5.000 Backtest). Statt zu versuchen, verpasste Events zu rekonstruieren, ist ein vollstaendiger REST-Refresh einfacher und zuverlaessiger.
+Jeder `ChartUpdate` traegt die `epoch`-Nummer bei Erzeugung. Updates mit einer aelteren Epoch-Nummer als dem aktuellen `epoch` werden verworfen — das verhindert, dass veraltete Events nach einem Reset den Chart korrumpieren.
+
+**Begruendung fuer REST-Refresh:** Waehrend der Disconnect-Phase koennen Bars verpasst worden sein. Der Ring Buffer hat eine begrenzte Kapazitaet (500 Events Live, 5.000 Backtest). Statt zu versuchen, verpasste Events zu rekonstruieren, ist ein vollstaendiger REST-Refresh einfacher und zuverlaessiger. Das `chartEpoch`-Gating stellt sicher, dass der Uebergang atomar ist.
 
 ### 9.3 Stream-Gap-Handling
 
@@ -884,8 +1006,18 @@ type ChartMode = 'live' | 'history' | 'backtest-live';
 |--------|------|---------------|
 | **Bar-Frequenz** | 1 Bar pro Minute (Echtzeit) | Hunderte Bars pro Sekunde (nach Throttling: ~4 Bars/Sekunde UI-seitig) |
 | **Auto-Scroll** | Ja (neueste Bar am rechten Rand) | Ja, aber mit optionalem Freeze (Operator kann scrollen) |
-| **Tageswechsel** | Nicht relevant (ein Handelstag pro Session) | Chart wird zurueckgesetzt: `setData([])`, neue Bars vom neuen Tag |
+| **Tageswechsel** | Nicht relevant (ein Handelstag pro Session) | Chart-Transition: letzte N Bars als Context behalten ODER smooth Reset (siehe unten) |
 | **requestAnimationFrame-Batching** | Nicht noetig (1 Event/Minute) | Essentiell (siehe Abschnitt 5.5) |
+
+#### Day-Change-UX im Backtest (Multi-LLM-Review, Finding #6)
+
+Statt eines harten `setData([])`-Resets beim Tageswechsel werden zwei Optionen angeboten:
+
+**Option A — Rolling Context (empfohlen):** Die letzten 30 Bars des vorherigen Tages bleiben als visueller Kontext erhalten, werden aber ausgegraut (reduzierte Opacity, z.B. `opacity: 0.3`). Eine vertikale Trennlinie markiert den Tageswechsel. Die neuen Bars des neuen Tages erscheinen rechts der Trennlinie in voller Opacity. Vorteil: Der Operator sieht den Uebergang und verliert nicht den visuellen Kontext (z.B. Schlusskurs des Vortags als Referenz).
+
+**Option B — Animated Reset:** `setData([])` mit einer kurzen Fade-Out-Animation (200ms, CSS `opacity` Transition auf dem Chart-Canvas-Container). Nach dem Fade-Out: neuer Tag laden, Fade-In. Vorteil: Klare visuelle Trennung, kein Mixed-Day-State.
+
+**Entscheidung:** Option A als Default implementieren. Option B als Fallback, falls die Lightweight-Charts-API die Opacity-Steuerung einzelner Bars nicht unterstuetzt (Bar-Level-Styling ist in v4.2 nur eingeschraenkt verfuegbar). In beiden Faellen laueft der Tageswechsel ueber das `chartEpoch`-Konzept (Abschnitt 9.2).
 
 ### 10.5 Feature-Zuordnung
 
@@ -916,7 +1048,27 @@ Alle neuen Komponenten verwenden CSS Modules (`.module.css`) gemaess Frontend-Gu
 | `BacktestDaySummary` | `BacktestDaySummary.module.css` |
 | `DetailLevelToggle` | `DetailLevelToggle.module.css` |
 
-### 11.2 Dark-Theme-Token-System
+### 11.2 Timezone-Handling (Multi-LLM-Review, Finding #8)
+
+Die `timeScale`-Konfiguration des Charts MUSS auf die Exchange-Timezone eingestellt sein, NICHT auf die Browser-Locale. ODIN handelt primaer US-Instrumente (NYSE/NASDAQ), daher ist die Default-Timezone `America/New_York` (Eastern Time).
+
+**Konfiguration in Lightweight Charts:**
+
+```typescript
+chart.timeScale().applyOptions({
+  timeVisible: true,
+  secondsVisible: false,
+  // Lightweight Charts v4 arbeitet mit UTC-Timestamps.
+  // Bar-Timestamps kommen vom Backend bereits als Exchange-Local-Time-Epoch.
+  // Das Backend liefert Timestamps in Exchange-TZ (Concept 11, §4).
+});
+```
+
+**Dual-Timezone-Anzeige:** Der bestehende `BarTooltip` zeigt bereits zwei Zeitzonen an (Exchange-TZ und Local-TZ). Dies bleibt unveraendert. Referenz: `src/shared/utils/timeUtils.ts` fuer die Konvertierungslogik.
+
+**Regel:** Alle Timestamps in Chart-relevanten Datenstrukturen (`OhlcvBar.time`, `ChartTradeEvent.time`, `IndicatorSnapshot.time`) sind Exchange-Timezone-Epoch-Sekunden. Keine Browser-TZ-Konvertierung in der Chart-Pipeline. Die Konvertierung fuer Tooltip-Anzeige erfolgt ausschliesslich in der Darstellungsschicht (`BarTooltip`, `DecisionFeedItem`).
+
+### 11.3 Dark-Theme-Token-System
 
 Das bestehende `resolveChartTokens.ts` definiert CSS Custom Properties fuer Chart-Farben. Neue Tokens fuer den DecisionFeed werden in das gleiche System integriert:
 
@@ -948,7 +1100,7 @@ Das bestehende `resolveChartTokens.ts` definiert CSS Custom Properties fuer Char
 --color-summary-negative:     #F87171;   /* Rot (Verlust) */
 ```
 
-### 11.3 Bestehende Chart-Farben (Referenz)
+### 11.4 Bestehende Chart-Farben (Referenz)
 
 Aus Concept 10, §12.1 — diese bleiben unveraendert:
 
@@ -967,7 +1119,7 @@ Aus Concept 10, §12.1 — diese bleiben unveraendert:
 | # | Frage | Auswirkung | Vorschlag |
 |---|-------|------------|-----------|
 | Q1 | Soll der `DecisionFeed` Events auch nach Backtest-Abschluss persistent ueber REST nachladen koennen (z.B. fuer Forensik)? | UX-Verbesserung fuer Post-Backtest-Analyse | Nein fuer V1. Die bestehenden REST-Endpoints (`/api/v1/runs/{runId}/decisions`, `/api/v1/runs/{runId}/llm-history`) decken den Post-hoc-Bedarf ab. |
-| Q2 | Soll der Chart bei Tageswechsel im Backtest den vorherigen Tag als "miniaturisierte Uebersicht" behalten oder komplett zuruecksetzen? | Speicher und visuelle Komplexitaet | Komplett zuruecksetzen. Der vorherige Tag ist im Day-Summary zusammengefasst. Bei Bedarf kann der Operator nach Abschluss in der History-View navigieren. |
+| Q2 | Soll der Chart bei Tageswechsel im Backtest den vorherigen Tag als "miniaturisierte Uebersicht" behalten oder komplett zuruecksetzen? | Speicher und visuelle Komplexitaet | **Geloest (Multi-LLM-Review):** Rolling Context (letzte 30 Bars ausgegraut) als Default, Animated Reset als Fallback. Details siehe Abschnitt 10.4. |
 | Q3 | Soll `useChartLiveUpdates` die Indikator-Berechnung client-seitig durchfuehren (fuer Live-Trading, wo nur Bars per SSE kommen) oder erwartet es server-seitige Indikator-Events? | Implementierungsaufwand, Genauigkeit | Server-seitige Events (bereits definiert in Concept 10/11). Client-seitige Berechnung wuerde Duplikation der Quant-Engine-Logik erfordern. |
 | Q4 | Multi-Instrument-Backtest: Soll die Backtest-Live-View gleichzeitig Charts fuer mehrere Instrumente zeigen oder nur eines mit Instrument-Switcher? | UI-Komplexitaet | Instrument-Switcher (Dropdown). Ein Chart zur Zeit. Multi-Instrument waere Tab-Layout — erhoehte Komplexitaet ohne klaren Mehrwert fuer V1. |
 | Q5 | Soll der `backtestLiveStore` bei Tageswechsel zurueckgesetzt werden oder den vollstaendigen State aller Tage halten? | Speicher | DecisionFeed-Events akkumulieren (mit Memory-Limit 1.000). Progress wird ueberschrieben. Day-Summaries akkumulieren (max 500). Chart-Bars werden zurueckgesetzt. |
