@@ -567,6 +567,10 @@ Nicht alle Events sind gleich wichtig. Bei Ueberlastung (Client kann nicht schne
 
 **Implementierung:** Ein `ThrottlingEventFilter` zwischen SimulationRunner und SseEmitterManager. Pro Event-Typ wird ein `lastSentTimestamp` gefuehrt. Wenn `now - lastSent < throttleIntervalMs`, wird das Event verworfen (ausser es ist NON-DROPPABLE).
 
+**WICHTIG — NON-DROPPABLE End-to-End-Garantie:** Die NON-DROPPABLE-Klassifizierung schuetzt nur auf ThrottlingEventFilter-Ebene vor dem Verwerfen. Ein Ring-Buffer-Overflow kann diese Events trotzdem ueberschreiben. Daher gilt: NON-DROPPABLE Events (`trade-executed`, `pipeline-state`, `completed`, `failed`, `cancelled`, `backtest-day-summary`) muessen ZUSAETZLICH in den EventLog (bestehende `EventRecord`-Infrastruktur) persistiert werden. Der Ring Buffer bleibt Best-Effort fuer SSE-Replay; der EventLog ist die durable Garantie. Bei Late-Join kann der Client kritische Events ueber den bestehenden REST-Endpoint `/api/v1/backtests/{backtestId}/events` nachladen.
+
+**Coalescing fuer Snapshot-Events:** Fuer zustandsbeschreibende Events (`indicator-update`, `position-update`) ist reines Time-based-Dropping suboptimal — der Client koennte einen veralteten Stand sehen. Stattdessen wird ein **Latest-Value-Cache** pro `(streamKey, eventType)` gefuehrt. Bei jedem eingehenden Snapshot-Event wird der Cache aktualisiert. Ein Dispatcher sendet den gecachten Wert in kontrollierter Kadenz (z.B. alle 100ms). Dadurch konvergiert die UI immer zum aktuellen Stand, auch unter hoher Last.
+
 **Default Throttle-Intervalle (Backtest):**
 
 | Event-Typ | Throttle-Intervall |
@@ -577,6 +581,27 @@ Nicht alle Events sind gleich wichtig. Bei Ueberlastung (Client kann nicht schne
 | backtest-quant-score | 250ms |
 | backtest-gate-result | 250ms |
 | Alle NON-DROPPABLE | 0ms (kein Throttling) |
+
+### 6.5 Producer-Entkopplung: Async Dispatch Layer
+
+`sendEvent()` darf den Producer-Thread (TradingPipeline, SimulationRunner) NICHT blockieren. Netzwerk-I/O (SSE-Write an den Emitter) kann bei langsamen Clients oder vollen TCP-Buffern blockieren. Wenn der Producer-Thread blockiert, verlangsamt das den gesamten Backtest.
+
+**Loesung:** Zwischen `ThrottlingEventFilter` und `SseEmitterManager` wird ein asynchroner Dispatch Layer eingefuegt:
+
+- **Bounded Queue pro Stream-Key:** Jeder Stream erhaelt eine `ArrayBlockingQueue<BufferedEvent>` mit konfigurierbarer Kapazitaet (Default: 1.000).
+- **Single Dispatcher Thread pro Stream:** Ein dedizierter Thread konsumiert Events aus der Queue und fuehrt den tatsaechlichen `emitter.send()` aus.
+- **Producer-Semantik:** `sendEvent()` fuehrt nur `queue.offer()` aus — non-blocking. Bei voller Queue wird das Event verworfen (DROPPABLE) oder in den EventLog persistiert (NON-DROPPABLE).
+- **Kein Netzwerk-I/O im Producer-Thread:** Der Producer enqueued und kehrt sofort zurueck. Der Dispatcher-Thread uebernimmt die Netzwerk-Interaktion.
+
+### 6.6 Wall-Clock vs. SimClock fuer TTL
+
+**Kritische Unterscheidung:** Der Ring Buffer arbeitet mit **Wall-Clock-Zeit** fuer Retention/TTL, nicht mit SimClock. Im Backtest laeuft die SimClock um Groessenordnungen schneller als die Wall-Clock — eine SimClock-basierte TTL wuerde den Buffer sofort invalidieren.
+
+- `BufferedEvent.timestamp`: Speichert `Instant.now()` (Wall-Clock) fuer TTL-Berechnung im Ring Buffer.
+- Event-Payloads enthalten `marketTime` (SimClock / `MarketClock.now()`) fuer die UI-Darstellung und Chart-Plotting.
+- `replaySince()` filtert nach `BufferedEvent.timestamp` (Wall-Clock), nicht nach `marketTime`.
+
+Diese Trennung ist essentiell: Die TTL bestimmt, wie lange ein Event im Buffer fuer Replay verfuegbar ist (Wall-Clock-Perspektive des Clients), waehrend `marketTime` die simulierte Handelszeit im Event-Payload repraesentiert.
 
 ---
 
@@ -631,7 +656,28 @@ Wenn der Client laenger als `replayBufferSeconds` disconnected war, sind Events 
 - **Ordered Delivery:** Innerhalb eines Streams sind Events strikt nach Event-ID geordnet.
 - **Idempotent Replay:** Replay kann Events doppelt senden (z.B. wenn Client den letzten Event vor Disconnect nicht verarbeitet hat). Der Client MUSS Event-IDs tracken und Duplikate ignorieren.
 
-### 7.5 Uebergang Catch-up → Live
+### 7.5 Stream-Gap-Signalisierung
+
+Wenn ein Client mit `Last-Event-ID: N` reconnected und `N < oldestAvailableEventId` im Ring Buffer ist, existiert eine Luecke: Events zwischen `N+1` und `oldestAvailableEventId-1` sind verloren (Ring-Buffer-Overflow oder TTL-Expiry). Der Client muss ueber diese Luecke informiert werden.
+
+**Control-Event `stream-gap`:** Vor dem Replay sendet der Server ein synthetisches Event:
+
+```json
+{
+  "type": "stream-gap",
+  "from": 4218,
+  "to": 4899,
+  "reason": "overflow"
+}
+```
+
+- `from`: Erste fehlende Event-ID (`lastEventId + 1`)
+- `to`: Letzte fehlende Event-ID (`oldestAvailableEventId - 1`)
+- `reason`: `"overflow"` (Ring Buffer voll) oder `"ttl"` (Events nach TTL entfernt)
+
+Der Client kann auf `stream-gap` reagieren, indem er kritische Events ueber den REST-Endpoint `/api/v1/backtests/{backtestId}/events` nachlaedt oder die UI als "Luecke erkannt" markiert.
+
+### 7.6 Uebergang Catch-up → Live
 
 Der Uebergang ist nahtlos:
 
@@ -641,7 +687,12 @@ Der Uebergang ist nahtlos:
 4. Alle neuen Events ab jetzt werden direkt an den Emitter gesendet
 5. **Lueckenfreiheit:** Da `replayEvents()` und `addEmitter()` im selben `registerEmitter()`-Aufruf passieren und `sendEvent()` den Buffer VOR dem Emitter-Broadcast schreibt, gibt es keine Race Condition zwischen Replay-Ende und erstem Live-Event.
 
-**Hinweis:** Die aktuelle Implementierung fuegt den Emitter ZUERST zur Liste hinzu und replayed DANACH. Das bedeutet, der Emitter koennte waehrend des Replays bereits neue Events erhalten. Da Events monoton steigende IDs haben, ist das korrekt — der Client sieht moeglicherweise Event 4250 (live) vor Event 4220 (replay). Der Client MUSS Events nach ID sortieren oder zumindest die hoechste empfangene ID tracken.
+**IMPLEMENTIERUNGSANFORDERUNG — Replay-Reihenfolge:** Die aktuelle Implementierung fuegt den Emitter ZUERST zur Emitter-Liste hinzu und replayed DANACH. Das verursacht Out-of-Order-Delivery: der Client empfaengt Live-Event 4250 VOR Replay-Event 4220. Das ist ein bekanntes Problem, das bei der Implementierung behoben werden MUSS. Zwei Loesungsansaetze:
+
+1. **Replay-First (bevorzugt):** Replay-Events senden, DANN den Emitter in die Live-Liste eintragen. Erfordert Synchronisation, damit waehrend des Replays keine Events verloren gehen (Events zwischen Replay-Ende und Emitter-Registration muessen gepuffert werden).
+2. **Live-Buffer:** Emitter sofort registrieren, aber Live-Events waehrend des Replays in einem temporaeren Buffer sammeln. Nach Replay-Abschluss den Buffer flushen. Einfacher zu implementieren, aber hoeherer Speicherverbrauch.
+
+Der Client-seitige Workaround (nach ID sortieren) ist KEIN Ersatz fuer server-seitige Korrektheit.
 
 ---
 
@@ -772,6 +823,32 @@ Nach jedem abgeschlossenen simulierten Tag sendet der BacktestRunner ein `Backte
 
 **Inhalt:** Siehe Abschnitt 3.3.10 — Datum, P&L, Trades, Drawdown, kumulative Metriken.
 
+### 9.4 Flush-on-Pause: Stale-UI-Vermeidung
+
+Durch Throttling koennen Events zurueckgehalten werden. Wenn der Backtest pausiert oder einen Tag abschliesst, wuerde die UI den letzten gethrottleten Stand zeigen — nicht den aktuellen. Das fuehrt zu stale UI-State.
+
+**Mechanismus:** Bei folgenden Trigger-Events flusht der `ThrottlingEventFilter` ALLE ausstehenden gecachten/gethrottleten Werte sofort:
+
+- **Tag abgeschlossen:** Bevor das `backtest-day-summary`-Event gesendet wird, werden alle pending Snapshot-Values (Latest-Value-Cache) geflusht.
+- **Backtest pausiert:** Bei Pause-Signal werden alle Caches geflusht.
+- **Backtest beendet:** Vor `completed`/`failed`/`cancelled` werden alle Caches geflusht.
+
+Dadurch zeigt die UI nach jedem Tagesabschluss und bei Pause immer den exakten Endstand.
+
+### 9.5 SimTime-basiertes Throttling (Alternative)
+
+Neben dem Wall-Clock-basierten Throttling (Abschnitt 6.4) ist ein SimTime-basiertes Throttling moeglich: Events werden nicht nach verstrichener Echtzeit, sondern nach simulierten Bars gefiltert — z.B. "sende maximal 1 Event pro N Bars".
+
+**Vorteil:** Konsistente visuelle Aufloesung unabhaengig von der Backtest-Geschwindigkeit. Ein schneller Backtest (1000 Bars/s) und ein langsamer Backtest (10 Bars/s) liefern die gleiche Datenreduktion.
+
+**Konfiguration:** Beide Modi sind als Konfigurationsoption vorgesehen:
+
+- `odin.frontend.sse.backtest-throttle-mode=wall-clock` (Default) — Throttling nach Echtzeit-Intervallen.
+- `odin.frontend.sse.backtest-throttle-mode=sim-bars` — Throttling nach simulierten Bar-Counts (z.B. jede 10. Bar).
+- `odin.frontend.sse.backtest-throttle-bar-interval=10` — Anzahl Bars zwischen Events (nur im `sim-bars`-Modus).
+
+Die Wahl haengt vom Anwendungsfall ab: Wall-Clock-basiert ist besser fuer konstante UI-Refresh-Raten, SimTime-basiert ist besser fuer reproduzierbare Analyse-Sessions.
+
 ---
 
 ## 10. Integration in bestehende Architektur
@@ -831,7 +908,13 @@ Der `BacktestExecutionService` orchestriert den vollstaendigen Lifecycle:
 3. **Completion:** Nach Abschluss `completed`/`failed`/`cancelled` ueber den Stream senden
 4. **Cleanup:** Der `SseEmitterManager` raeumt den Ring Buffer automatisch auf, wenn der letzte Emitter disconnected
 
-### 10.5 SseEmitterManager: Backtest-Streams mit vollen Events
+### 10.5 Frontend: Memory Windowing
+
+Bei langen Backtest-Streams (84.000+ Events bei `full`-Detail) darf das Frontend nicht alle Events unbegrenzt im Speicher halten. Ohne Begrenzung fuehrt das zu Memory Leaks und Performance-Degradation im Browser.
+
+**Anforderung:** Das Frontend MUSS Memory Windowing fuer Event-Arrays implementieren — z.B. Sliding Window mit fester Groesse, aeltere Events verwerfen oder in IndexedDB auslagern. Die konkrete Client-seitige Strategie (Window-Groesse, Eviction-Policy, Chart-Data-Retention) wird in **ODIN-102** (Live-Chart-Components-Concept) spezifiziert.
+
+### 10.6 SseEmitterManager: Backtest-Streams mit vollen Events
 
 Die bestehende `sendEvent()`-Methode funktioniert bereits fuer Backtest-Streams — sie ist stream-key-agnostisch. Die einzige Erweiterung:
 
