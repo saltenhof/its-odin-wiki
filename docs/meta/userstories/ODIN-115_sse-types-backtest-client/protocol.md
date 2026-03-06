@@ -100,14 +100,30 @@ Reuses `SseClient` class — inherits exponential backoff (10s/20s/40s max 60s) 
 4. detailLevel as query param is correct
 5. Last-Event-ID "gap": Gemini suggested adding it as factory param — REJECTED. SseClient manages lastEventId internally on reconnect; no external initialization needed.
 
-### 3.4 Gemini Review — Dimension 3: Practical Gaps
+### 3.4 Gemini Review — Dimension 3: Praxis-Gaps (ODIN-115-rework, 2026-03-06)
 
-**Key findings:**
-1. Ghost stream leak — caller must call `.disconnect()` (accepted: caller responsibility, out of scope)
-2. "completed" event does not auto-disconnect — reconnect loop risk — DEFERRED to ODIN-123 (explicitly out of scope)
-3. High-frequency progress events → main thread saturation — DEFERRED (throttling out of scope for this story)
-4. JSON parse error handling — already handled in SseClient.handleEvent() via try-catch
-5. 410 Gone from expired backtest — DEFERRED to ODIN-123
+Dedicated Gemini pool call (owner: ODIN-115-rework). Files reviewed: sseClient.ts, sseEvents.ts, sseEvents.test.ts, sseClientFactory.test.ts.
+
+**Performance unter Last:**
+- CRITICAL: JSON.parse + Store-Updates laufen synchron auf dem Main-Thread. Bei 100+ Events/s (Backtest-Bar-Progress) führt dies zu UI-Jank → DEFERRED: Throttling/Batching in hooks/store layer, out of scope for this story.
+- MEDIUM: console.debug String-Interpolation und data.length-Berechnung bei allen Events haben Logging-Overhead → ACCEPTED as-is: Logging ist im Production-Build durch Tree-Shaking/Build-Pipeline adressierbar.
+
+**Reconnect-Handling & EventSource-Lifecycle:**
+- CRITICAL: EventListener Accumulation — beim Reconnect werden neue Listener per addEventListener hinzugefügt, aber alte nicht entfernt. Die anonymen Closures halten Referenz auf `this` → ASSESSED: Da die alte EventSource per .close() geschlossen und anschliessend null-gesetzt wird, kann der GC sie einsammeln. Kein echter Leak in der Praxis (closures referenzieren SseClient, nicht die EventSource). Kein Fix nötig.
+- MEDIUM: Status Race Condition in disconnect() — connectionStatus wurde erst nach eventSource.close() gesetzt. → FIXED: Status wird jetzt VOR close() gesetzt (Zeile 133-134).
+
+**Memory Leaks:**
+- HIGH: Closure Leak in openConnection() — Loop-Closures halten `this` (SseClient) und `eventType` (String). → ASSESSED: Kein echter Leak, da EventSource korrekt null-gesetzt und Closures nur SseClient referenzieren (den Owner). SseClient lebt ohnehin so lang wie die Connection gebraucht wird.
+
+**SSE Edge Cases:**
+- MEDIUM: JSON parse errors werden geloggt aber kein Reconnect erzwungen. → ACCEPTED as-is: Partial messages führen zu JSON-Fehler → Error-Log → Stream läuft weiter. stream-gap Mechanismus ist Server-seitig zuständig. Kein erzwungener Reconnect nötig.
+- LOW: lastEventId wird manuell als Query-Param angehängt (Browser schickt es auch nativ als Header beim Reconnect). → ACCEPTED as-is: Manueller Param für page-reload Recovery ist intentional und ergänzt das native Header-Verhalten.
+
+**Browser-Kompatibilität:**
+- HIGH: HTTP/1.1 Connection Limit (max 6 SSE per Domain). Bei mehreren offenen Instrument-Clients hängt das System. → ACCEPTED as-is für ODIN (privates System, Desktop-only, kontrollierte Deployment-Umgebung). HTTP/2 als Infrastructure-Voraussetzung dokumentiert unter "Offene Punkte".
+
+**URL nicht erreichbar / Backoff:**
+- MEDIUM: Backoff wurde in onopen() sofort zurückgesetzt. Bei "Flapping"-Connections (connect → sofort fail) hämmert der Client ohne Rücksicht auf den Server. → FIXED: Backoff wird nur zurückgesetzt wenn die Verbindung >= 30s stabil war (MIN_STABLE_CONNECTION_MS Konstante). Implementiert in onerror() Handler.
 
 ---
 
@@ -119,6 +135,8 @@ Reuses `SseClient` class — inherits exponential backoff (10s/20s/40s max 60s) 
 | Extract anonymous gate entry type | ChatGPT + Gemini D1 | Implemented: `BacktestGateEntry` interface |
 | Guard against blank backtestId | ChatGPT | Implemented: throws `Error` if `backtestId.trim().length === 0` |
 | Normalize trailing slash in baseUrl | ChatGPT + Gemini D1 | Implemented: `.replace(/\/$/, '')` on baseUrl |
+| Disconnect status race condition | Gemini D3 | Fixed: status set BEFORE eventSource.close() in disconnect() |
+| Flapping connection backoff reset | Gemini D3 | Fixed: backoff only resets after MIN_STABLE_CONNECTION_MS (30s) stable connection |
 
 ## 5. Findings Rejected / Deferred
 
@@ -127,13 +145,25 @@ Reuses `SseClient` class — inherits exponential backoff (10s/20s/40s max 60s) 
 | Make `activeSetup`/`reason`/`lastKnownEventId` nullable | Backend contract defines these as required strings per Concept 11 spec |
 | Add `lastEventId` param to factory | SseClient manages this internally; adding it would change SseClient API (out of scope) |
 | Terminal event auto-disconnect | Explicitly out of scope — ODIN-123 |
-| Throttle progress events | Hooks/Stores out of scope for this story |
+| Throttle progress events at 100+/s | Batching in hooks/store layer, out of scope for this story |
 | Runtime type validation (Zod) | Out of scope; adds dependency not in project |
 | Branded date/timestamp types | Low value for this story; can be considered globally if needed |
+| EventListener named-function refactor | No real memory leak: EventSource is closed + nulled, GC collects closures |
+| Force reconnect on JSON parse error | Stream continues; server-side stream-gap mechanism handles recovery |
 
 ---
 
-## 6. Test Results
+## 6. Offene Punkte
+
+| Punkt | Priorität | Story |
+|-------|-----------|-------|
+| Throttling/Batching für High-Frequency Backtest-Events (100+/s) | MEDIUM | ODIN-123 oder dedizierter Store-Story |
+| Terminal-Event (completed/failed/cancelled) löst kein auto-disconnect aus — Reconnect-Loop nach Backtest-Ende | HIGH | ODIN-123 |
+| HTTP/2 als Deployment-Voraussetzung für Multi-Instrument SSE (HTTP/1.1 Limit: 6 Connections/Domain) | MEDIUM | Infra/Deployment |
+
+---
+
+## 7. Test Results
 
 **Build:** `tsc --noEmit` — GREEN (no errors)
 **Tests:** 326 passed / 0 failed (23 test files)
@@ -142,14 +172,16 @@ New/modified tests:
 - `sseEvents.test.ts`: 10 new test cases (total: 20 tests in file)
 - `sseClientFactory.test.ts`: 6 new test cases
 
+Code changes from D3 Rework: sseClient.ts (disconnect status ordering, MIN_STABLE_CONNECTION_MS backoff guard)
+
 ---
 
-## 7. Files Changed
+## 8. Files Changed
 
 ### its-odin-ui
 - `src/shared/types/sseEvents.ts` — Added 6 interfaces, 5 union members
 - `src/shared/types/index.ts` — Added 6 new type exports
-- `src/shared/api/sseClient.ts` — Added `BacktestDetailLevel`, `createBacktestSseClient`, updated `SSE_EVENT_TYPES` with `satisfies`
+- `src/shared/api/sseClient.ts` — Added `BacktestDetailLevel`, `createBacktestSseClient`, updated `SSE_EVENT_TYPES` with `satisfies`; D3 rework: disconnect status ordering, MIN_STABLE_CONNECTION_MS backoff guard
 - `src/shared/api/index.ts` — Added `createBacktestSseClient`, `BacktestDetailLevel` exports
 - `src/shared/types/sseEvents.test.ts` — 10 new test cases
 - `src/shared/api/sseClientFactory.test.ts` — New file, 6 test cases
