@@ -127,9 +127,22 @@ Gemini D1 interpretierte die Coalescing-Logik als Bug ("Events gehen verloren").
 
 Module: odin-core (349), odin-backtest (407), odin-app (417)
 
-Neu hinzugefuegt durch ODIN-124-rework:
+Neu hinzugefuegt durch ODIN-124-rework (Runde 1):
 - SimulationRunnerTest: 3 neue Tests (9 gesamt, war 6)
 - ThrottlingEventFilterTest: unveraendert (31 Tests)
+
+Neu hinzugefuegt durch ODIN-124-rework (Runde 2 — QA-Remediation):
+- TradingPipelineTest: 10 neue SSE-Publisher-Tests (359 gesamt in odin-core, war 349)
+  - testIndicatorUpdateEventEmittedOnSnapshot
+  - testPipelineStateEventEmittedOnWarmupToObserving
+  - testTradeExecutedAndPositionUpdateEmittedOnEntryFill
+  - testTradeExecutedAndPositionUpdateEmittedOnExitFill
+  - testNullPublisherDoesNotThrowOnSnapshot
+  - testNullPublisherDoesNotThrowOnEntryFill
+  - testNullPublisherDoesNotThrowOnExitFill
+  - testTradeExecutedPayloadContainsBuySideOnEntryFill (payload-Kontrakt mit ArgumentCaptor)
+  - testTradeExecutedPayloadContainsSellSideOnExitFill (payload-Kontrakt mit ArgumentCaptor)
+  - testRejectedBrokerEventDoesNotEmitTradeExecutedOrPositionUpdate (Negativtest)
 
 ## Aenderungen durch Review
 
@@ -141,3 +154,52 @@ Datei: `odin-backtest/src/main/java/de/its/odin/backtest/BacktestRunner.java`
 Neue Imports: `LocalTime`, `ZoneId`, `HashMap`, `Map`, `never`, `HistoricalMarketDataFeed`
 Neue Tests: `preMarketBarsShouldNeverFireBarCallback`, `zeroRthBarsShouldNeverFireBarCallback`, `nullCallbackWithHistoricalFeedShouldNotThrow`
 Datei: `odin-core/src/test/java/de/its/odin/core/sim/SimulationRunnerTest.java`
+
+## Aenderungen durch QA-Remediation Runde 2
+
+### BacktestRunner.java (odin-backtest)
+Fix: `import java.util.HashMap;` hinzugefuegt; `new java.util.HashMap<>()` -> `new HashMap<>()`.
+Datei: `odin-backtest/src/main/java/de/its/odin/backtest/BacktestRunner.java`
+
+### BacktestExecutionService.java (odin-app)
+Fix: JavaDoc von `publishProgressSseEvents()` aktualisiert — veralteter "deferred to ODIN-115"-Kommentar
+durch korrekte Beschreibung der ODIN-124-Implementierung (echte completedBars/totalBars-Werte) ersetzt.
+Datei: `odin-app/src/main/java/de/its/odin/app/service/BacktestExecutionService.java`
+
+### TradingPipelineTest.java (odin-core)
+Neue Imports: `MonitoringEventPublisher`, `Map`, `times`
+10 neue Unit-Tests fuer SSE-Publisher-Aufrufe (alle 4 ODIN-124-Eventtypen + Null-Guard + Negativtest + Payload-Kontrakt).
+Datei: `odin-core/src/test/java/de/its/odin/core/pipeline/TradingPipelineTest.java`
+
+## ChatGPT-Sparring Runde 2
+
+**Owner:** ODIN-124-rework (Telemetrie korrekt protokolliert)
+
+**Prompt-Schwerpunkte:** Test-Design-Review fuer neue SSE-Publisher-Tests.
+
+**Wichtigste Findings:**
+1. Tests nutzen `atLeastOnce()` statt `times(1)` — zu permissiv fuer Kardinalitraetspruefung. **EINGEARBEITET**: Payload-Tests nutzen `times(1)`.
+2. Keine Payload-Assertions — Frontend-Kontrakt ungeschuetzt. **EINGEARBEITET**: 2 neue Tests mit `ArgumentCaptor` pruefen `side`, `instrumentId`, `fillPrice`/`realizedPnl`.
+3. Negativtest fuer REJECTED-Event fehlt. **EINGEARBEITET**: `testRejectedBrokerEventDoesNotEmitTradeExecutedOrPositionUpdate`.
+4. Partial-Exit-Test fehlt. **ABGELEHNT**: In-Scope ist full-exit (ODIN-124 deckt die main happy path); Partial-Exit ist ein separates Verhalten (existierender Re-Entry-Mechanismus aus ODIN-103).
+5. Concurrent-Tests. **ABGELEHNT**: TradingPipeline ist explizit single-threaded — keine Parallelisierung geplant.
+
+## Gemini-Review Runde 2
+
+### Dimension 1 — Code-Review
+
+**Finding: "Critical Bug" — completedBarCounter nur wenn eventPublisher != null**
+ABGELEHNT — kein echter Bug: In allen Code-Pfaden wo `completedBars` relevant ist (UI-Pfad via BacktestExecutionService), wird `eventPublisher` immer mitgegeben (nie null). In CLI-Pfaden ohne `progressCallback` wird `completedBars` nie ausgewertet. Die Kopplung ist korrekt-by-design.
+
+Weitere Findings: HashMap-Import korrekt, JavaDoc-Update akkurat, neue Tests "excellent coverage".
+
+### Dimension 2 — Konzepttreue
+
+Alle 4 ODIN-124-Eventtypen durch neue Tests korrekt verifiziert. JavaDoc-Update akkurat. Keine Konzeptverstoesse festgestellt. Score: positiv.
+
+### Dimension 3 — Praxis
+
+**Payload-Blind-Spot**: `any()` matcher in Tests laesst falsche Payloads durch. **EINGEARBEITET** durch 2 Payload-Kontrakt-Tests.
+**Multiplicity-Mask**: `atLeastOnce()` maskiert Doppelpublizierung. **EINGEARBEITET** durch `times(1)` in Payload-Tests.
+**HashMap-Import-Fix**: korrekt bewertet als build-kritisch.
+**JavaDoc-Fix**: "highly valuable for maintainability" — Pre-Market-Bug-Erklaerung verhindert kuenftige "Fixes" die Progress-Anzeige brechen.
