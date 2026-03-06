@@ -1,15 +1,99 @@
-# ODIN-125: Progressive Chart Experience — Implementierungsprotokoll
+# Protokoll: ODIN-125 — Progressive Chart Experience
 
-**Story**: ODIN-125 — Progressive Chart Experience
-**Datum**: 2026-03-06
-**Agent**: Claude Opus 4.6 (Worker)
-**Status**: Abgeschlossen
+## Working State
+- [x] Initiale Implementierung
+- [x] Unit-Tests geschrieben
+- [x] ChatGPT-Sparring fuer Test-Edge-Cases
+- [x] Integrationstests geschrieben
+- [x] Gemini-Review Dimension 1 (Code)
+- [x] Gemini-Review Dimension 2 (Konzepttreue)
+- [x] Gemini-Review Dimension 3 (Praxis)
+- [x] Review-Findings eingearbeitet
+- [x] Commit & Push
 
 ---
 
-## 1. Umsetzungsumfang
+## Design-Entscheidungen
 
-### 1.1 Geaenderte Dateien (13 Dateien, +323 / -8 Zeilen)
+| Entscheidung | Begruendung |
+|---|---|
+| `backtest-bar` → `chart.appendBar()` via `handleChartEventRef` (imperativer Pfad) | React State fuer 5-20 bars/sec wuerde Render-Storm verursachen. Chart-Library (Lightweight Charts) ist fuer imperative Updates ausgelegt. |
+| `simTime` als Top-Level-String in Store | Einfach fuer Store-Updates; kein verschachteltes Objekt noetig da simTime immer ein einziger ISO-8601-String ist. |
+| Feldnamen `openTime/closeTime` statt `barOpenTime/barCloseTime` | Konsistenz mit bestehendem Frontend-Code (`BacktestBarProgressPayload` nutzt bereits `currentDate`). |
+| Kein explizites `barIndex`-Feld im Payload | Chart nutzt Timestamp-basierte X-Achse. `openTime`-basierter Unix-Timestamp ist genuegend eindeutig. |
+| NaN-Guard in `BacktestLiveView.handleChartEventRef` | Schutz am Uebergangspunkt zur Chart-Library. Gemini D2 hat Verschiebung nach `useBacktestStream` vorgeschlagen — bewertet als low priority, da Backend ISO-8601 UTC garantiert und der Guard nur als Defense-in-Depth dient. |
+| `useChartData` Mode-Guard (`backtest-live` skippt REST-Fetch) | Klare Trennung: Live-Modus startet leer, alle Bars kommen per SSE. Verhindert Mischung von REST-Daten und SSE-Daten. |
+| Auto-Redirect mit `replace: true` | Verhindert History-Pollution. Doppelter Navigate (React StrictMode) ist harmlos durch `replace: true`. |
+| `detailLoading`-Flicker-Fix via `isInitialLoad`-Guard | Polling-Updates setzen `detailLoading` nicht mehr auf `true`, nur initiales Laden. Verhindert Flicker-Effekt im UI waehrend laufendem Backtest. |
+
+---
+
+## Offene Punkte
+
+| # | Thema | Empfehlung |
+|---|---|---|
+| 1 | Stream-Gap Recovery fuer BacktestLiveView | Eigene User Story: `onReconnect`-Callback + Gap-Fill-Logik via REST |
+| 2 | IntraDayChart Performance-Refactoring | Eigene Story: `setLiveDataVersion` Batching, `updateActiveBar` O/H/L/C-Fix |
+| 3 | Day-Boundary Chart-Reset | Validieren bei erstem echtem Backtest-Lauf mit Multi-Day-Daten |
+| 4 | Performance-Monitoring | Metriken fuer Bar-Append-Rate und Render-Latenz bei Produktion-Backtests |
+| 5 | NaN-Guard Verschiebung | Gemini D2: Guard koennte in `useBacktestStream` verschoben werden. Low priority solange Backend ISO-8601 UTC garantiert. |
+
+---
+
+## ChatGPT-Sparring
+
+**Prompt-Fokus**: Test-Edge-Cases fuer die `backtest-bar` → `appendBar()` Kette, die Unit-Tests nicht abdecken.
+
+**Ergebnis**: ChatGPT hat 5 hochwertige Integration-Test-Szenarien identifiziert:
+
+| # | Szenario | Bewertung | Massnahme |
+|---|---|---|---|
+| 1 | Stream-Gap Recovery — BacktestLiveView uebergibt kein `onReconnect` | VALID | Out-of-Scope: Eigene Story fuer Reconnect-Handling erforderlich |
+| 2 | Day-Rollover Interleaving — Bars von Tag N+1 kommen waehrend Tag-N-Summary | LOW | Reihenfolge vom Backend garantiert; Client-seitig unkritisch |
+| 3 | 10.001-Bar Eviction — Memory-Cap bei MAX_LIVE_BARS | VALID | Abgedeckt durch Integration-Test TC-5 (Memory Cap + FIFO-Eviction) |
+| 4 | Late Events nach Reconnect — doppelte/alte Bars | MEDIUM | Backend sendet `lastEventId`; Out-of-Scope fuer ODIN-125 |
+| 5 | Redirect Race Condition — Detail-Page Redirect bei schnellem Status-Wechsel | LOW | `replace: true` verhindert History-Pollution; kurze Transition akzeptabel |
+
+**ChatGPT-Empfehlung umgesetzt**: Integration-Tests fuer Aggregations-Boundary-Crossing, NaN-Guard + Recovery, Memory-Cap, simTime-Ordering-Invariante, und Store-Reset (6 Test-Cases in `BacktestLiveView.integration.test.ts`).
+
+---
+
+## Gemini-Review
+
+### Dimension 1: Code-Review
+
+| Schwere | Befund | Bewertung |
+|---|---|---|
+| HIGH | `setSimTime` auf jedem Bar triggert Render-Storm bei hoher Event-Rate | Pre-existing Design in Zustand (Subscriber-Isolation). `SimClockStrip` isoliert simTime-Reads vom Main-Page-Component. Kein akutes Risiko bei 5-20 bars/sec. |
+| HIGH | `setLiveDataVersion` Performance bei hoher Event-Rate | Pre-existing Design in `useChartData`; betrifft den gesamten IntraDayChart, nicht spezifisch ODIN-125. Eigene Refactoring-Story empfohlen. |
+| HIGH | O(N) Array-Spreading in `liveBarsRef` (spread + slice) | Pre-existing Pattern in `useChartData`. Bei 10k Bars und 20 bars/sec: 200k Ops/sec — noch akzeptabel. Refactoring auf mutable Ring-Buffer empfohlen fuer Praxis-Optimierung. |
+| MEDIUM | NaN-Guard-Platzierung in Presentation Layer | Design-Entscheidung begruendet akzeptiert (s. Design-Entscheidungen). |
+| MAJOR | Redirect Double-Fire bei React StrictMode | Akzeptiert: `replace: true` + idempotenter Navigate macht Double-Fire harmlos |
+| MINOR | `openTime`-Parsing ohne explizite UTC-Erzwingung | NaN-Guard faengt invalide Timestamps ab; Backend sendet ISO-8601 UTC mit `Z`-Suffix. |
+
+### Dimension 2: Konzepttreue
+
+| Punkt | Bewertung | Details |
+|---|---|---|
+| Empty Chart Start | CORRECT | `useChartData` Mode-Guard (`backtest-live`) initialisiert leeren Chart ohne REST-Fetch. `liveBarsRef.current = []` korrekt gesetzt. |
+| Progressive Rendering | CORRECT | SSE→Router→`chart.appendBar()` Chain ist semantisch korrekt fuer "one bar at a time" Progressive Rendering. |
+| SimTime Semantics | CORRECT | `payload.simTime` repraesentiert den internen Clock-Stand des Backtest-Engines (nicht Boundary-Zeitpunkt). Korrekte Wahl. |
+| NaN Guard Placement | DEVIATION | In `BacktestLiveView` statt `useBacktestStream`. Akzeptiert als Defense-in-Depth (s. Design-Entscheidungen). |
+| Chart Ref Pattern | CORRECT | `useRef<IntraDayChartRef>` + imperative `chart.appendBar()` ist die richtige Wahl fuer High-Frequency Updates ohne React Render-Storm. |
+
+### Dimension 3: Praxis-Risiken
+
+| Risiko | Schwere | In Scope | Bewertung | Massnahme |
+|---|---|---|---|---|
+| React StrictMode Double-Firing — doppelte Bars durch zwei simultane SSE-Verbindungen | MEDIUM | JA | Grace-Period + single-owner Pattern verhindert doppelte Connections. StrictMode ist nur Development. | Kein ODIN-125-Fix noetig; bestehender Pattern genuegt. |
+| Rapid backtestId Navigation — Bars von Run A in Run B Chart | HIGH | NEIN | `backtestId` in `BacktestBarPayload` vorhanden; Client-seitiges Drop moglich, aber Backend-Seitig kontrolliert durch Stream-Teardown. | Out-of-Scope. Eigene Story fuer sichere Navigation-Teardown. |
+| Browser Tab Backgrounding — SSE Connection Drop | MEDIUM | NEIN | `EventSource` reconnects automatisch; fehlende Bars koennen nicht via REST nachgeladen werden. | Out-of-Scope. Reconnect-Handling ist eigene Story. |
+| Memory ueber volle Session (88k evicted Bars) | HIGH | JA | `liveBarsRef` und Chart-Library-Series sind getrennte Datenhaltungen. Eviction aus `liveBarsRef` betrifft nicht die intern vom Chart gehaltenen Daten. Test TC-5 abgedeckt. | Architektur-Klarstellung: Chart-Library ist Source of Truth fuer Rendering; `liveBarsRef` nur fuer Re-Aggregation. |
+| Date Parsing Locale-Sensitivity | LOW | JA | Backend sendet immer `Z`-Suffix (UTC). `isoToUnixSeconds` verwendet `Math.floor(new Date(iso).getTime() / 1000)` — funktioniert korrekt fuer strict ISO-8601 UTC. | Kein Fix noetig. |
+
+---
+
+## Geaenderte Dateien (13 Produktionsdateien + 5 Testdateien + 1 Integrationstestdatei)
 
 | Datei | Aenderung |
 |---|---|
@@ -26,91 +110,13 @@
 | `src/domains/backtesting/hooks/useBacktestStream.test.ts` | +3 Tests (backtest-bar Routing, simTime-Propagation, null-simTime) |
 | `src/domains/backtesting/stores/backtestLiveStore.test.ts` | +3 Tests (setSimTime, simTime-Reset) |
 | `src/domains/backtesting/pages/BacktestLiveView.test.tsx` | +2 Tests (backtest-bar via onChartEvent, NaN-Guard) |
-
-### 1.2 Acceptance Criteria
-
-| AC | Status |
-|---|---|
-| AC-1: Auto-Redirect `/backtesting/:id` -> `/backtesting/:id/live` fuer RUNNING/QUEUED | Umgesetzt |
-| AC-2: `BacktestBarPayload` Typ + `backtest-bar` in `SseEvent`-Union | Umgesetzt |
-| AC-3: SSE-Routing `backtest-bar` -> `chart.appendBar()` | Umgesetzt |
-| AC-4: Chart startet leer im `backtest-live`-Modus (kein REST-Fetch) | Umgesetzt |
-| AC-5: Kontextbezogene Meldung in `useBacktestEvents` fuer RUNNING | Umgesetzt |
-| AC-6: `detailLoading`-Flicker-Fix bei Polling | Umgesetzt |
-| AC-7: `simTime` in Store + Propagation aus SSE-Events | Umgesetzt |
+| `src/domains/backtesting/pages/BacktestLiveView.integration.test.ts` | **NEU (Remediation Runde 2)**: 6 Integration-Tests (reale Klassen, kein Mocking) |
 
 ---
 
-## 2. Build & Tests
+## Build & Tests
 
-- **Build**: `npm run build` — Erfolgreich (tsc + vite, 2.60s)
-- **Tests**: 42 Test-Dateien, **639 Tests bestanden**, 0 fehlgeschlagen (5.98s)
-- **Neue Tests**: 10 neue Test-Cases ueber 4 Testdateien
-
----
-
-## 3. ChatGPT-Sparring (DoD 5.5)
-
-### Prompt-Fokus
-Testablauf: 5 gezielten Szenarien die die bestehenden Tests nicht abdecken.
-
-### Ergebnisse
-
-| # | Szenario | Bewertung | Massnahme |
-|---|---|---|---|
-| 1 | Stream-Gap Recovery — BacktestLiveView uebergibt kein `onReconnect` | VALID | Out-of-Scope: Eigene Story fuer Reconnect-Handling erforderlich |
-| 2 | Day-Rollover Interleaving — Bars von Tag N+1 kommen waehrend Tag-N-Summary | LOW | Reihenfolge vom Backend garantiert; Client-seitig unkritisch |
-| 3 | 10.001-Bar Eviction — Memory-Cap bei MAX_LIVE_BARS | VALID | Bestehender Ring-Buffer in IntraDayChart greift; kein ODIN-125-Scope |
-| 4 | Late Events nach Reconnect — doppelte/alte Bars | MEDIUM | Backend sendet `lastEventId`; Dedup im Chart via Timestamp-Vergleich |
-| 5 | Redirect Race Condition — Detail-Page Redirect bei schnellem Status-Wechsel | LOW | `replace: true` verhindert History-Pollution; kurze Transition akzeptabel |
-
----
-
-## 4. Gemini-Review (DoD 5.6)
-
-### Dimension 1: Code-Review
-
-| Schwere | Befund | Bewertung |
-|---|---|---|
-| CRITICAL | `updateActiveBar` Daten-Korruptionspotenzial (O/H/L/C-Berechnung) | Pre-existing Design in IntraDayChart, nicht durch ODIN-125 eingefuehrt |
-| CRITICAL | `setLiveDataVersion` Performance bei hoher Event-Rate | Pre-existing; `appendBar` rief `setLiveDataVersion` bereits vor ODIN-125 auf |
-| MAJOR | Redirect Double-Fire bei React StrictMode | Akzeptiert: `replace: true` + idempotenter Navigate macht Double-Fire harmlos |
-| MINOR | `openTime`-Parsing ohne Timezone-Validierung | NaN-Guard faengt invalide Timestamps ab; Backend sendet ISO-8601 UTC |
-
-### Dimension 2: Konzepttreue (Concept 11 Abgleich)
-
-Alle Abweichungen als OK bewertet:
-- Feldnamen `openTime/closeTime` statt `barOpenTime/barCloseTime` (Konsistenz mit bestehendem Frontend)
-- `simTime` als Top-Level-String statt verschachteltes Objekt (einfacher fuer Store-Updates)
-- Kein explizites `barIndex`-Feld (Chart nutzt Timestamp-basierte X-Achse)
-
-### Dimension 3: Praxis-Risiken
-
-| Risiko | Schwere | Bewertung |
-|---|---|---|
-| Render-Cycle-Lockup bei >100 bars/sec | HIGH | Backtest-Bar-Rate typisch 5-20/sec; Throttling im Backend; kein akutes Risiko |
-| GC-Druck durch Array-Spreads in Store | HIGH | Zustand-immer-Pattern; bei 10k Bars max 1 Spread pro Bar; akzeptabel |
-| Stale Data bei Day-Boundary-Wechsel | HIGH | Chart-Reset bei neuem Tag wird vom Backend-Event getriggert; ODIN-125 Scope nur Bar-Append |
-| Canvas-Overdraw bei schnellem Append | MEDIUM | Lightweight-Charts batcht intern; kein manuelles Batching noetig |
-| Event-Ordering bei Reconnect | LOW | SSE `lastEventId` + Backend-seitige Ordering; Out-of-Scope fuer ODIN-125 |
-
----
-
-## 5. Bewertung der Review-Findings
-
-Kein Finding erfordert sofortige Aenderung innerhalb des ODIN-125-Scopes:
-
-- **Pre-existing Issues** (updateActiveBar, setLiveDataVersion): Bestehen unabhaengig von ODIN-125 und betreffen den gesamten IntraDayChart. Eigene Refactoring-Story empfohlen.
-- **Reconnect/Gap-Recovery**: Bewusst nicht in Scope. Erfordert eigene Story mit Backend-Koordination (lastEventId, gap-fill).
-- **Performance bei hoher Bar-Rate**: Backtest-Bar-Emission ist Backend-seitig gedrosselt (typisch 5-20/sec). Monitoring bei realen Backtest-Laeufen empfohlen.
-
----
-
-## 6. Offene Punkte / Empfehlungen
-
-| # | Thema | Empfehlung |
-|---|---|---|
-| 1 | Stream-Gap Recovery fuer BacktestLiveView | Eigene User Story: `onReconnect`-Callback + Gap-Fill-Logik |
-| 2 | IntraDayChart Performance-Refactoring | Eigene Story: `setLiveDataVersion` Batching, `updateActiveBar` O/H/L/C-Fix |
-| 3 | Day-Boundary Chart-Reset | Validieren bei erstem echtem Backtest-Lauf mit Multi-Day-Daten |
-| 4 | Performance-Monitoring | Metriken fuer Bar-Append-Rate und Render-Latenz bei Produktion-Backtests |
+- **Build**: `npm run build` — `built in 3.00s` (tsc + vite, 0 errors)
+- **Tests (Runde 1)**: 42 Test-Dateien, **639 Tests bestanden**, 0 fehlgeschlagen
+- **Tests (Runde 2)**: 44 Test-Dateien, **661 Tests bestanden**, 0 fehlgeschlagen
+- **Neue Tests (Runde 2)**: 6 Integration-Test-Cases in `BacktestLiveView.integration.test.ts`
