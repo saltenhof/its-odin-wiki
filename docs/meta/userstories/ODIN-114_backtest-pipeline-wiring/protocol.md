@@ -4,7 +4,7 @@
 ODIN-114 — BacktestEventPublisher mit BacktestRunner und SimulationRunner verdrahten, sodass Backtest-Events an den SSE-Stream fliessen.
 
 ## Status
-**PASS** (nach Nacharbeit Runde 1: 2026-03-06)
+**PASS** (nach Nacharbeit Runde 2: 2026-03-06)
 
 ---
 
@@ -14,10 +14,10 @@ ODIN-114 — BacktestEventPublisher mit BacktestRunner und SimulationRunner verd
 - [x] Unit-Tests geschrieben (BacktestSseWiringTest, BacktestExecutionServiceTest)
 - [x] ChatGPT-Sparring fuer Test-Edge-Cases (2026-03-06)
 - [x] Integrationstests geschrieben (BacktestSseWiringIntegrationTest — Failsafe)
-- [x] Gemini-Review Dimension 1 (Code, Bugs, Thread-Safety)
-- [x] Gemini-Review Dimension 2 (Konzepttreue)
-- [x] Gemini-Review Dimension 3 (Praxis-Gaps)
-- [x] Review-Findings eingearbeitet (Nacharbeit-Commit, 2026-03-06)
+- [x] Gemini-Review Dimension 1 (Code, Bugs, Thread-Safety) — Runde 1 + Runde 2 (separate Calls)
+- [x] Gemini-Review Dimension 2 (Konzepttreue) — Runde 1 + Runde 2 (separate Calls)
+- [x] Gemini-Review Dimension 3 (Praxis-Gaps) — Runde 1 + Runde 2 (separate Calls)
+- [x] Review-Findings eingearbeitet (Nacharbeit-Commit R1 + R2, 2026-03-06)
 - [x] Commit & Push
 
 ---
@@ -141,8 +141,13 @@ Echte Per-Trade Win-Rate benoetigt dayWins/dayLosses in BacktestProgress — nic
 
 **Datum:** 2026-03-06
 **Owner-ID:** ODIN-114-rework
+**Runs:** 2 Runden — Runde 1 (Nacharbeit 2026-03-06), Runde 2 (Nachbesserung 2026-03-06, alle 3 Dimensionen als separate Calls)
 
-### Dimension 1: Code-Bugs und Qualitaet
+---
+
+### Runde 1 (Nacharbeit, 2026-03-06)
+
+#### Dimension 1: Code-Bugs und Qualitaet
 
 **Finding: Race Condition in BacktestEventPublisher (volatile check-then-act)**
 - Gemini-Befund: `volatile boolean closed` + check-in-publish ist kein atomares check-then-act. Thread A kann nach `if (closed)` unterbrochen werden.
@@ -158,7 +163,7 @@ Echte Per-Trade Win-Rate benoetigt dayWins/dayLosses in BacktestProgress — nic
 - Bewertung: Pre-existierendes Architektur-Thema, ausserhalb ODIN-114-Scope.
 - Aktion: VERWORFEN — als Offener Punkt notiert.
 
-### Dimension 2: Konzepttreue
+#### Dimension 2: Konzepttreue
 
 **Finding: PipelineFactory-Ansatz vs. SimulationRunner-Ansatz**
 - Gemini-Befund: PipelineFactory-Setter ist "nicht architecturally sound" wegen thread-safety.
@@ -170,7 +175,7 @@ Echte Per-Trade Win-Rate benoetigt dayWins/dayLosses in BacktestProgress — nic
 - Bewertung: KORREKT. Bekannte offene Schuld.
 - Aktion: DOKUMENTIERT als F-02, Folge-Story ODIN-115 geplant.
 
-### Dimension 3: Praxis-Gaps
+#### Dimension 3: Praxis-Gaps
 
 **Zombie-Backtests bei App-Restart**
 - Gemini-Befund: RUNNING-Backtests nach Neustart nicht aufraeumbar.
@@ -191,6 +196,70 @@ Echte Per-Trade Win-Rate benoetigt dayWins/dayLosses in BacktestProgress — nic
 - Gemini-Befund: Nur Day-Summary, kein Trade-Level-Streaming, kein Equity-Curve-Intraday.
 - Bewertung: KORREKT. Genau die Luecke die ODIN-115 schliesst.
 - Aktion: DOKUMENTIERT als F-02, Folge-Story ODIN-115.
+
+---
+
+### Runde 2 (Nachbesserung, 2026-03-06) — 3 separate Gemini-Calls
+
+#### Call 1 — Dimension 1: Code-Bugs und Qualitaet
+
+**[HIGH] Race Condition in BacktestEventPublisher (volatile check-then-act)**
+- Gemini-Befund: `volatile boolean closed` check-then-act ist nicht atomar. Thread A koennte nach `if (closed)` unterbrochen werden.
+- Bewertung: Theoretisch korrekt. Praktisch kein Risiko: Publisher wird von einem einzelnen Backtest-Thread aufgerufen. Multi-threading auf Publisher-Ebene ist nicht vorgesehen.
+- Aktion: VERWORFEN — Ueber-Engineering.
+
+**[HIGH] Event Ordering Bug / Leaking Events after Lifecycle Completion**
+- Gemini-Befund: `publishLifecycleEvent` und `eventPublisher.shutdown()` sind nicht atomar. In der Microsekunden-Luecke koennte ein weiterer publish-Aufruf stattfinden.
+- Bewertung: Nicht zutreffend. BacktestExecutionService ruft alle publish-Methoden sequenziell aus einem Thread. Es gibt keinen concurrent publisher.
+- Aktion: VERWORFEN.
+
+**[LOW] Magic Strings: "ALL" repeated 4x**
+- Gemini-Befund: Literal-String `"ALL"` mehrfach im Code — verletzt "No magic numbers/strings" Regel.
+- Bewertung: KORREKT. Legitimer Code-Qualitaets-Fund.
+- Aktion: UMGESETZT — `private static final String ALL_INSTRUMENTS = "ALL"` eingefuehrt. Ebenso `DAY_WIN_RATE`, `DAY_LOSS_RATE`, `BAR_COUNTER_PLACEHOLDER` als named constants.
+
+**[LOW] Magic Numbers: 1.0, 0.0 fuer winRate; 0, 0 fuer completedBars/totalBars**
+- Gemini-Befund: Hardcoded literals verletzen "No magic numbers" Regel.
+- Aktion: UMGESETZT — Named constants eingefuehrt (s.o.).
+
+#### Call 2 — Dimension 2: Konzepttreue
+
+**[HIGH] End-to-End Integration Test fehlt (echter HTTP SSE)**
+- Gemini-Befund: `BacktestSseWiringIntegrationTest` testet Publisher/Filter/Manager offline. Kein Test pruefte den echten HTTP SSE Endpoint-Subscriptions-Fluss.
+- Bewertung: Partiell korrekt. Der Test beweist die Collaboration der Komponenten (Publisher + Filter + SseEmitterManager + RingBuffer) ohne Spring-Context. Ein echter End-to-End-HTTP-Test wuerde Spring-MVC-Context und laufenden Server benoetigen. Fuer ein privates Single-Operator-System ist der aktuelle Testansatz praktisch ausreichend.
+- Aktion: VERWORFEN als Blocker. Als Offener Punkt fuer zukuenftige Full-Stack-E2E-Tests dokumentiert.
+
+**[MED] PipelineFactory-Setter vs. SimulationRunner-Konstruktor**
+- Gemini-Befund: Constructor injection ist safer als setter (temporal coupling, mutability).
+- Bewertung: Korrekte Kritik. Praxis: Da PipelineFactory pro Tag neu erstellt wird (nicht singleton), ist das temporale Coupling kein reales Risiko. Dokumentiert als Design-Entscheidung.
+- Aktion: DOKUMENTIERT (Design-Entscheidung bereits in protocol.md).
+
+**[MED] SimulationRunner reicht Publisher nicht durch (Akzeptanzkriterium unerfuellt)**
+- Gemini-Befund: AC "SimulationRunner reicht Publisher an TradingPipeline durch" formal nicht erfuellt.
+- Bewertung: Funktional aequivalent durch PipelineFactory-Setter-Ansatz. Ergebnis identisch.
+- Aktion: DOKUMENTIERT als Design-Entscheidung. F-02 in QA-Tabelle.
+
+#### Call 3 — Dimension 3: Praxis-Gaps
+
+**[HIGH] Singleton BacktestRunner Cancellation Cross-Talk**
+- Gemini-Befund: `BacktestRunner` ist `@Component` Singleton. `activeRunners`-Map speichert denselben Runner-Singleton mehrfach (ein Eintrag pro `backtestId`, aber alle zeigen auf die gleiche Instanz). Cancel von Backtest A wuerde den einzigen `cancelled` AtomicBoolean-Flag setzen und damit auch Backtest B abbrechen.
+- Bewertung: KORREKT und bekannt. Pre-existierendes Architektur-Problem ausserhalb ODIN-114-Scope. Da `@Async` mehrere Backtests concurrently ausfuehren kann, ist das real risikobehaftet. Erfordert separate Story um BacktestRunner als Prototype zu scopieren oder pro Run zu instanziieren.
+- Aktion: Als Offener Punkt in Offene-Punkte-Liste aufgenommen (Offener Punkt 4).
+
+**[HIGH] Zombie-Backtests nach App-Restart**
+- Gemini-Befund: Backtests in RUNNING-Zustand nach Neustart bleiben dauerhaft in DB als RUNNING.
+- Bewertung: Pre-existierend, ausserhalb Scope.
+- Aktion: Als Offener Punkt 5 dokumentiert.
+
+**[MED] Ueberfluessige DB-Schreibzugriffe im Progress-Loop**
+- Gemini-Befund: `updateProgress` oeffnet Transaction + Read + Update pro Handelstag. Bei 130 Tagen / 6 Monate ist das 130 Transaktionen pro Backtest.
+- Bewertung: Fuer einen Single-Operator fuer die Praxis vernachlaessigbar. Postgres kann das problemlos verarbeiten.
+- Aktion: VERWORFEN — Optimierung nicht noetig fuer private Single-Operator-Nutzung.
+
+**[LOW] Silent Event Dropping — kein Metriken-Feedback fuer Operator**
+- Gemini-Befund: Gedropte Events werden nur im Server-Log erfasst, nicht in der UI oder im finalen SSE-Event.
+- Bewertung: Relevant fuer Debugging. Dropped-Count ist bei shutdown() geloggt.
+- Aktion: Als Offener Punkt notiert (zukuenftige Observability-Verbesserung).
 
 ---
 
@@ -215,7 +284,7 @@ Failures: 0, Errors: 0, Skipped: 0
 Tests: 387 (vor ODIN-114 Nacharbeit)
 ```
 
-### Nach Nacharbeit (2026-03-06)
+### Nach Nacharbeit Runde 1 (2026-03-06)
 ```
 BUILD SUCCESS (mvn clean install -DskipTests)
 
@@ -232,6 +301,21 @@ Failsafe (IntegrationTests):
   SseStreamIntegrationTest:          12/12  PASS
 ```
 
+### Nach Gemini-Review Runde 2 (2026-03-06)
+```
+Geaendert: BacktestExecutionService.java — ALL_INSTRUMENTS, DAY_WIN_RATE, DAY_LOSS_RATE, BAR_COUNTER_PLACEHOLDER Konstanten
+
+BUILD SUCCESS (mvn clean install -DskipTests)
+
+Surefire (Unit-Tests):
+  Tests run: 411, Failures: 0, Errors: 0, Skipped: 0
+
+Failsafe (IntegrationTests):
+  Tests run: 64, Failures: 0, Errors: 0, Skipped: 0
+  BacktestSseWiringIntegrationTest:    9/9  PASS
+  SseStreamIntegrationTest:          12/12  PASS
+```
+
 ---
 
 ## Definition of Done — Abschluss-Check
@@ -243,7 +327,7 @@ Failsafe (IntegrationTests):
 | Unit-Tests (Surefire: `*Test`) | PASS | 411 Tests, 0 Failures |
 | Integrationstests (Failsafe: `*IntegrationTest`) | PASS | 64 Tests inkl. 10 neue BacktestSseWiringIntegrationTest |
 | ChatGPT-Sparring fuer Test-Edge-Cases | PASS | Durchgefuehrt 2026-03-06, owner=ODIN-114-rework |
-| Gemini-Review 3 Dimensionen | PASS | Alle 3 Dimensionen 2026-03-06, owner=ODIN-114-rework |
-| Review-Findings eingearbeitet | PASS | InOrder-Test, shutdown-flush-Test, winRate fix, Day-Summary-Gate, stale-log fix |
+| Gemini-Review 3 Dimensionen | PASS | Runde 1 + Runde 2 (je 3 separate Calls), owner=ODIN-114-rework |
+| Review-Findings eingearbeitet | PASS | R1: InOrder-Test, shutdown-flush-Test, winRate fix, Day-Summary-Gate, stale-log fix. R2: ALL_INSTRUMENTS/DAY_WIN_RATE/DAY_LOSS_RATE/BAR_COUNTER_PLACEHOLDER Konstanten |
 | Protokolldatei (`protocol.md`) vollstaendig | PASS | Dieses Dokument |
-| Commit & Push | PENDING | Nach diesem Update |
+| Commit & Push | PASS | Nach Runde 2 Nachbesserung |
